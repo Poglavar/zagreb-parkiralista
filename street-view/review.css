@@ -1,0 +1,344 @@
+/* This stylesheet gives the static review UI a clear working layout for desktop and mobile. */
+:root {
+  --bg: #efe8db;
+  --paper: #f9f5ed;
+  --ink: #122033;
+  --muted: #5d6875;
+  --line: #d3c7b6;
+  --accent: #9a3412;
+  --accent-soft: #f3d4b5;
+  --blue: #1d4ed8;
+  --blue-soft: #dbeafe;
+  --green: #166534;
+  --green-soft: #dcfce7;
+  --shadow: 0 12px 30px rgba(18, 32, 51, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(154, 52, 18, 0.14), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(29, 78, 216, 0.12), transparent 22%),
+    var(--bg);
+}
+
+button,
+select,
+input,
+textarea,
+label {
+  font: inherit;
+}
+
+button,
+.import-button,
+a.button-link {
+  cursor: pointer;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-end;
+  padding: 1.5rem 1.5rem 0.5rem;
+}
+
+.topbar h1,
+.card h2 {
+  margin: 0.1rem 0 0;
+  font-size: clamp(1.4rem, 2vw, 2rem);
+}
+
+.eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.topbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+button,
+.import-button {
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 0.7rem 1rem;
+  text-decoration: none;
+  box-shadow: var(--shadow);
+}
+
+button:hover,
+.import-button:hover {
+  background: #fffdf8;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 1rem;
+  padding: 1rem 1.5rem 1.5rem;
+}
+
+.card {
+  background: color-mix(in srgb, var(--paper) 94%, white 6%);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 1rem;
+  box-shadow: var(--shadow);
+}
+
+.card + .card {
+  margin-top: 1rem;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 0.8rem;
+}
+
+.card-header-actions {
+  display: flex;
+  align-items: center;
+}
+
+.card-header-actions a {
+  color: var(--blue);
+}
+
+.segment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-height: calc(100vh - 210px);
+  overflow: auto;
+}
+
+.segment-chip {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 0.8rem 0.9rem;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.segment-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.segment-chip strong {
+  display: block;
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.7rem;
+}
+
+.meta-pill,
+.summary-block {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 0.75rem 0.9rem;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.meta-pill span:first-child,
+.summary-block .summary-title {
+  display: block;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.capture-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.8rem;
+}
+
+.capture-card {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.capture-card img,
+.capture-card .capture-placeholder {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+
+.capture-placeholder {
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(18, 32, 51, 0.06),
+    rgba(18, 32, 51, 0.06) 12px,
+    rgba(18, 32, 51, 0.03) 12px,
+    rgba(18, 32, 51, 0.03) 24px
+  );
+  text-align: center;
+  color: var(--muted);
+}
+
+.capture-meta {
+  padding: 0.8rem;
+  font-size: 0.95rem;
+}
+
+.capture-meta p {
+  margin: 0.15rem 0;
+}
+
+.diagram {
+  width: 100%;
+  min-height: 260px;
+  background: linear-gradient(180deg, #f6efe3, #f0e4d0);
+  border-radius: 18px;
+  border: 1px solid var(--line);
+}
+
+.summary-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.decision-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.85rem;
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.decision-badge.reviewed {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.override-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.form-row,
+.side-grid,
+.form-actions {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.form-row {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.side-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+fieldset {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 0.85rem;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+legend {
+  padding: 0 0.4rem;
+  color: var(--muted);
+}
+
+label {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.65rem;
+}
+
+fieldset label > span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+input[type="number"],
+select,
+textarea {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  padding: 0.7rem 0.8rem;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+input[type="checkbox"] {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.form-actions {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+@media (max-width: 1180px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .segment-list {
+    max-height: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .topbar-actions {
+    width: 100%;
+  }
+
+  .topbar-actions > * {
+    flex: 1 1 150px;
+    text-align: center;
+  }
+
+  .layout {
+    padding: 0.8rem;
+  }
+}

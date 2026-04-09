@@ -1,0 +1,397 @@
+{
+  "type": "FeatureCollection",
+  "metadata": {
+    "source": "/Users/simun/Code/zagreb-road-widths/data/road-width-zagreb.json",
+    "selection": "data/tresnjevka-batch-selection.mjs",
+    "generated_at": "2026-04-09T17:54:48.941Z",
+    "feature_count": 10
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "id": "525",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.94079,
+            45.79449
+          ],
+          [
+            15.94186,
+            45.79463
+          ]
+        ]
+      },
+      "properties": {
+        "segment_id": "525",
+        "label": "Trešnjevka batch 525",
+        "notes": "Pongračevo segment with moderate width and a short single-station run.",
+        "width_m": 10.04,
+        "length_m": 85,
+        "width_bucket": "9-11m",
+        "l1": [
+          "TREŠNJEVKA - SJEVER"
+        ],
+        "l2": [
+          "Zagreb"
+        ],
+        "l3": [
+          "Trešnjevka - sjever",
+          "Pongračevo"
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "526",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.9546,
+            45.80623
+          ],
+          [
+            15.95628,
+            45.80641
+          ]
+        ]
+      },
+      "properties": {
+        "segment_id": "526",
+        "label": "Trešnjevka batch 526",
+        "notes": "Samoborček segment wide enough to test marked edge-parking interpretations.",
+        "width_m": 13.72,
+        "length_m": 132,
+        "width_bucket": "13-16m",
+        "l1": [
+          "TREŠNJEVKA - SJEVER"
+        ],
+        "l2": [
+          "Zagreb"
+        ],
+        "l3": [
+          "Trešnjevka - sjever",
+          "\"Samoborček\""
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "529",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.94795,
+            45.79813
+          ],
+          [
+            15.94731,
+            45.79802
+          ],
+          [
+            15.94724,
+            45.79794
+          ],
+          [
+            15.94778,
+            45.79642
+          ]
+        ]
+      },
+      "properties": {
+        "segment_id": "529",
+        "label": "Trešnjevka batch 529",
+        "notes": "Stara Trešnjevka segment long enough to force multi-station capture.",
+        "width_m": 9.76,
+        "length_m": 236,
+        "width_bucket": "9-11m",
+        "l1": [
+          "TREŠNJEVKA - SJEVER"
+        ],
+        "l2": [
+          "Zagreb"
+        ],
+        "l3": [
+          "Trešnjevka - sjever",
+          "Stara Trešnjevka"
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "556",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.93368,
+            45.799
+          ],
+          [
+            15.93366,
+            45.79962
+          ]
+        ]
+      },
+      "properties": {
+        "segment_id": "556",
+        "label": "Trešnjevka batch 556",
+        "notes": "Ljubljanica narrow residential segment that may show informal curbside behavior.",
+        "width_m": 6,
+        "length_m": 68,
+        "width_bucket": "4-7m",
+        "l1": [
+          "TREŠNJEVKA - SJEVER"
+        ],
+        "l2": [
+          "Zagreb"
+        ],
+        "l3": [
+          "Ljubljanica",
+          "Trešnjevka - sjever"
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "777",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.93916,
+            45.8084
+          ],
+          [
+            15.93942,
+            45.80837
+          ],
+          [
+            15.9412,
+            45.80841
+          ],
+          [
+            15.94183,
+            45.80848
+          ]
+        ]
+      },
+      "properties": {
+        "segment_id": "777",
+        "label": "Trešnjevka batch 777",
+        "notes": "Ciglenica segment with medium length for a second north-side multi-image case.",
+        "width_m": 10.14,
+        "length_m": 209,
+        "width_bucket": "9-11m",
+        "l1": [
+          "TREŠNJEVKA - SJEVER"
+        ],
+        "l2": [
+          "Zagreb"
+        ],
+        "l3": [
+          "Trešnjevka - sjever",
+          "Ciglenica"
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "595",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.89638,
+            45.79424
+          ],
+          [
+            15.89671,
+            45.79328
+          ]
+        ]
+      },
+      "properties": {
+        "segment_id": "595",
+        "label": "Trešnjevka batch 595",
+        "notes": "Prečko narrow segment included to test lower-width south-side streets.",
+        "width_m": 6.19,
+        "length_m": 111,
+        "width_bucket": "4-7m",
+        "l1": [
+          "TREŠNJEVKA - JUG"
+        ],
+        "l2": [
+          "Zagreb"
+        ],
+        "l3": [
+          "Trešnjevka - jug",
+          "Prečko"
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "597",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.9329,
+            45.78345
+          ],
+          [
+            15.93308,
+            45.78309
+          ],
+          [
+            15.93296,
+            45.78269
+          ],
+          [
+            15.93311,
+            45.78228
+          ],
+          [
+            15.93298,
+            45.78202
+          ]
+        ]
+      },
+      "properties": {
+        "segment_id": "597",
+        "label": "Trešnjevka batch 597",
+        "notes": "Jarun residential segment with enough length for multi-station reasoning.",
+        "width_m": 8.12,
+        "length_m": 167,
+        "width_bucket": "7-9m",
+        "l1": [
+          "TREŠNJEVKA - JUG"
+        ],
+        "l2": [
+          "Zagreb"
+        ],
+        "l3": [
+          "Trešnjevka - jug",
+          "Jarun"
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "604",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.92798,
+            45.79077
+          ],
+          [
+            15.92806,
+            45.78934
+          ]
+        ]
+      },
+      "properties": {
+        "segment_id": "604",
+        "label": "Trešnjevka batch 604",
+        "notes": "Jarun segment with wider carriageway and stronger formal-parking potential.",
+        "width_m": 11.98,
+        "length_m": 160,
+        "width_bucket": "11-13m",
+        "l1": [
+          "TREŠNJEVKA - JUG"
+        ],
+        "l2": [
+          "Zagreb"
+        ],
+        "l3": [
+          "Trešnjevka - jug",
+          "Jarun"
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "614",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.95122,
+            45.78876
+          ],
+          [
+            15.95383,
+            45.78861
+          ]
+        ]
+      },
+      "properties": {
+        "segment_id": "614",
+        "label": "Trešnjevka batch 614",
+        "notes": "Knežija segment to sample mid-width neighborhood parking conditions.",
+        "width_m": 8.18,
+        "length_m": 203,
+        "width_bucket": "7-9m",
+        "l1": [
+          "TREŠNJEVKA - JUG"
+        ],
+        "l2": [
+          "Zagreb"
+        ],
+        "l3": [
+          "Trešnjevka - jug",
+          "Knežija"
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "605",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.94112,
+            45.79317
+          ],
+          [
+            15.94184,
+            45.79244
+          ],
+          [
+            15.94193,
+            45.79216
+          ],
+          [
+            15.94206,
+            45.79113
+          ]
+        ]
+      },
+      "properties": {
+        "segment_id": "605",
+        "label": "Trešnjevka batch 605",
+        "notes": "Horvati - Srednjaci segment long enough to exercise the highest capture count.",
+        "width_m": 9.07,
+        "length_m": 246,
+        "width_bucket": "9-11m",
+        "l1": [
+          "TREŠNJEVKA - JUG"
+        ],
+        "l2": [
+          "Zagreb"
+        ],
+        "l3": [
+          "Trešnjevka - jug",
+          "Horvati - Srednjaci"
+        ]
+      }
+    }
+  ]
+}

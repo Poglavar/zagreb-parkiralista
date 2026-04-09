@@ -1,0 +1,5 @@
+# Ignore generated Street View outputs and local secrets for this proof of concept.
+out/**
+!out/.gitkeep
+.env.local
+review-overrides-export-*.json

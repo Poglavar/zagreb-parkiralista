@@ -1,0 +1,204 @@
+{
+  "type": "FeatureCollection",
+  "metadata": {
+    "source": "/Users/simun/Code/zagreb-road-widths/data/road-width-zagreb.json",
+    "generated_at": "2026-04-09T16:52:45.491Z",
+    "feature_count": 3
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "id": "1",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.89444,
+            45.80024
+          ],
+          [
+            15.89392,
+            45.80064
+          ]
+        ]
+      },
+      "properties": {
+        "segment_id": "1",
+        "label": "Stenjevec demo segment 1",
+        "notes": "Short residential segment, good for single-station testing.",
+        "width_m": 10.07,
+        "length_m": 60,
+        "width_bucket": "9-11m",
+        "l1": [
+          "STENJEVEC"
+        ],
+        "l2": [
+          "Zagreb"
+        ],
+        "l3": [
+          "\"Špansko-jug\"",
+          "Špansko - jug",
+          "Stenjevec"
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "5",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.98279,
+            45.81462
+          ],
+          [
+            15.98321,
+            45.81506
+          ],
+          [
+            15.98304,
+            45.81576
+          ],
+          [
+            15.98308,
+            45.81591
+          ],
+          [
+            15.98316,
+            45.81599
+          ],
+          [
+            15.98388,
+            45.81633
+          ],
+          [
+            15.98397,
+            45.8164
+          ],
+          [
+            15.98399,
+            45.8165
+          ],
+          [
+            15.98388,
+            45.8166
+          ],
+          [
+            15.98373,
+            45.81661
+          ],
+          [
+            15.98332,
+            45.81639
+          ],
+          [
+            15.983,
+            45.81629
+          ],
+          [
+            15.98284,
+            45.81629
+          ],
+          [
+            15.98257,
+            45.81641
+          ],
+          [
+            15.98251,
+            45.81653
+          ],
+          [
+            15.98237,
+            45.81747
+          ],
+          [
+            15.9825,
+            45.81774
+          ],
+          [
+            15.98277,
+            45.8178
+          ]
+        ]
+      },
+      "properties": {
+        "segment_id": "5",
+        "label": "Ribnjak demo segment 5",
+        "notes": "Longer curved segment, useful for multi-station capture.",
+        "width_m": 8.34,
+        "length_m": 560,
+        "width_bucket": "7-9m",
+        "l1": [
+          "GORNJI GRAD - MEDVEŠČAK"
+        ],
+        "l2": [
+          "Zagreb"
+        ],
+        "l3": [
+          "Ribnjak",
+          "Gornji grad - Medveščak"
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "9",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.94945,
+            45.78462
+          ],
+          [
+            15.9491,
+            45.78493
+          ],
+          [
+            15.94845,
+            45.78517
+          ],
+          [
+            15.94777,
+            45.78552
+          ],
+          [
+            15.94737,
+            45.78561
+          ],
+          [
+            15.94697,
+            45.78548
+          ],
+          [
+            15.94684,
+            45.78536
+          ],
+          [
+            15.94642,
+            45.78463
+          ]
+        ]
+      },
+      "properties": {
+        "segment_id": "9",
+        "label": "Horvati - Srednjaci demo segment 9",
+        "notes": "Medium segment with enough width to exercise both-side hypotheses.",
+        "width_m": 11.01,
+        "length_m": 340,
+        "width_bucket": "11-13m",
+        "l1": [
+          "TREŠNJEVKA - JUG"
+        ],
+        "l2": [
+          "Zagreb"
+        ],
+        "l3": [
+          "Trešnjevka - jug",
+          "Horvati - Srednjaci"
+        ]
+      }
+    }
+  ]
+}

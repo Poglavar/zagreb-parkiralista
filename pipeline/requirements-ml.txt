@@ -1,0 +1,23 @@
+# Phase 1+ ML pipeline dependencies — heavy, requires torch
+# Install: pip install -r requirements-ml.txt
+# On Apple Silicon, torch installs MPS-enabled wheels automatically.
+
+# Core
+-r requirements.txt
+
+# Geospatial raster
+rasterio>=1.3
+owslib>=0.31
+mercantile>=1.2
+
+# Segmentation foundation models
+segment-geospatial[text]>=0.10
+torch>=2.2
+transformers>=4.46  # SAM 3 backend that works on Apple Silicon
+ultralytics>=8.3.237  # SAM 3 + YOLO models
+
+# Visualization / debug
+leafmap>=0.32
+
+# Phase 5 — LLM cartographer
+anthropic>=0.40

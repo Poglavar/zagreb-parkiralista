@@ -1,0 +1,6 @@
+# Phase 0 baseline dependencies — light, no ML
+# Install: pip install -r requirements.txt
+
+requests>=2.31
+shapely>=2.0
+pyproj>=3.6

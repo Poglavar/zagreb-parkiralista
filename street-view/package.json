@@ -1,0 +1,17 @@
+{
+  "name": "street-view-poc",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare:demo": "node scripts/import-road-width-demo.mjs && node scripts/prepare-candidates.mjs",
+    "prepare:tresnjevka": "node scripts/import-road-width-selection.mjs --selection data/tresnjevka-batch-selection.mjs --out data/tresnjevka-batch.geojson && node scripts/prepare-candidates.mjs --input data/tresnjevka-batch.geojson --out out/tresnjevka-candidates.json",
+    "mock:run": "node scripts/mock-run.mjs",
+    "fetch:metadata": "node scripts/fetch-street-view-metadata.mjs",
+    "fetch:images": "node scripts/fetch-street-view-images.mjs",
+    "analyze:openai": "node scripts/analyze-openai.mjs",
+    "build:polygons": "node scripts/build-parking-areas.mjs",
+    "build:bundle": "node scripts/build-review-bundle.mjs",
+    "serve": "python3 -m http.server 8015",
+    "test": "node --test test/*.test.mjs"
+  }
+}

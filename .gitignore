@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+.python-version
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Environment
+.env
+.env.local
+
+# Pipeline outputs — large/regeneratable
+data/tiles/
+data/tiles_jpg/
+data/composites/
+data/masks/
+data/candidates/raw/
+
+# Large OSM dumps — regeneratable via pipeline/21_fetch_landuse.py and pipeline/22_fetch_highways.py
+data/osm/landuse_zagreb.geojson
+data/osm/highways_zagreb.geojson
+
+# Phase 6 street-view local outputs (street-view/.gitignore also handles these)
+street-view/out/
+!street-view/out/.gitkeep
+
+# Auto-downloaded model weights (Ultralytics fetches yolov8n.pt etc. from GitHub on first call)
+*.pt
+*.onnx
+*.engine
+
+# Cache
+.cache/
+*.tif.aux.xml

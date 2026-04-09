@@ -1,0 +1,11 @@
+{
+  "name": "zagreb-parkiralista",
+  "version": "0.1.0",
+  "description": "Open database of parking areas in Zagreb — official, informal, and capacity-estimated",
+  "private": true,
+  "scripts": {
+    "dev": "npx http-server -p 8000 -c-1 .",
+    "serve": "python3 -m http.server 8000"
+  },
+  "license": "MIT"
+}

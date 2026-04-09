@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="hr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Zagreb parkirališta</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="index.css?v=8" />
+</head>
+<body>
+  <div id="map" aria-label="Karta parkirališta u Zagrebu"></div>
+
+  <header id="topbar">
+    <h1>Zagreb parkirališta</h1>
+    <div id="headline-stats">
+      <div class="headline-stat">
+        <span class="headline-stat-value" id="hs-spots">—</span>
+        <span class="headline-stat-label">parking mjesta</span>
+        <span class="headline-stat-sub" id="hs-spots-sub">—</span>
+      </div>
+      <div class="headline-stat">
+        <span class="headline-stat-value" id="hs-lots">—</span>
+        <span class="headline-stat-label">parkirališta</span>
+        <span class="headline-stat-sub" id="hs-lots-sub">—</span>
+      </div>
+      <div class="headline-stat">
+        <span class="headline-stat-value" id="hs-area">—</span>
+        <span class="headline-stat-label">km² ukupno</span>
+        <span class="headline-stat-sub" id="hs-informal-sub">samo otvorena</span>
+      </div>
+    </div>
+  </header>
+
+  <aside id="legend" class="panel">
+    <h2>Slojevi</h2>
+    <label class="layer-toggle">
+      <input type="checkbox" id="toggle-osm-open" checked />
+      <span class="swatch swatch-open"></span>
+      <span class="layer-label">Otvorena (OSM)</span>
+      <span class="count" id="count-osm-open">—</span>
+    </label>
+    <label class="layer-toggle">
+      <input type="checkbox" id="toggle-osm-enclosed" checked />
+      <span class="swatch swatch-enclosed"></span>
+      <span class="layer-label">Zatvorena (OSM)</span>
+      <span class="count" id="count-osm-enclosed">—</span>
+    </label>
+    <label class="layer-toggle">
+      <input type="checkbox" id="toggle-ml" checked disabled />
+      <span class="swatch swatch-ml"></span>
+      <span class="layer-label">ML-otkrivena (Faza 1)</span>
+      <span class="count" id="count-ml">—</span>
+    </label>
+    <label class="layer-toggle">
+      <input type="checkbox" id="toggle-informal" checked disabled />
+      <span class="swatch swatch-informal"></span>
+      <span class="layer-label">Neslužbena (Faza 3)</span>
+      <span class="count" id="count-informal">—</span>
+    </label>
+    <div id="informal-breakdown" class="informal-breakdown"></div>
+    <div class="layer-group">
+      <div class="layer-group-label">LLM kandidati (Faza 5)</div>
+      <label class="layer-toggle layer-toggle-sub">
+        <input type="checkbox" id="toggle-llm-anthropic" checked disabled />
+        <span class="swatch swatch-llm-anthropic"></span>
+        <span class="layer-label">Claude</span>
+        <span class="count" id="count-llm-anthropic">—</span>
+      </label>
+      <label class="layer-toggle layer-toggle-sub">
+        <input type="checkbox" id="toggle-llm-openai" checked disabled />
+        <span class="swatch swatch-llm-openai"></span>
+        <span class="layer-label">GPT</span>
+        <span class="count" id="count-llm-openai">—</span>
+      </label>
+    </div>
+
+    <h2>Boja po kapacitetu</h2>
+    <div class="capacity-scale">
+      <span class="cap-cell c1">&lt;20</span>
+      <span class="cap-cell c2">20–50</span>
+      <span class="cap-cell c3">50–100</span>
+      <span class="cap-cell c4">100–250</span>
+      <span class="cap-cell c5">&gt;250</span>
+    </div>
+  </aside>
+
+  <aside id="totals-panel" class="panel totals-panel">
+    <div class="admin-control">
+      <h2>Administrativne razine</h2>
+      <select id="admin-level" class="admin-select">
+        <option value="city">Cijeli grad</option>
+        <option value="1">Gradske četvrti</option>
+        <option value="2">Naselja</option>
+        <option value="3">Mjesni odbori</option>
+      </select>
+      <div id="admin-status" class="admin-status"></div>
+    </div>
+
+    <div id="totals-content" class="totals-content" hidden>
+      <header class="totals-header">
+        <h2 id="totals-title">—</h2>
+      </header>
+      <div class="totals-controls">
+        <span id="totals-summary" class="totals-summary">—</span>
+        <select id="totals-sort" class="totals-sort">
+          <option value="capacity">Sortiraj: kapacitet ↓</option>
+          <option value="lots">Sortiraj: broj parkirališta ↓</option>
+          <option value="area">Sortiraj: površina ↓</option>
+          <option value="name">Sortiraj: ime A–Ž</option>
+        </select>
+      </div>
+      <div class="totals-table-wrap">
+        <table class="totals-table">
+          <thead>
+            <tr>
+              <th>Područje</th>
+              <th class="num">Parkir.</th>
+              <th class="num">Otvor.</th>
+              <th class="num">Zatv.</th>
+              <th class="num">Mjesta</th>
+            </tr>
+          </thead>
+          <tbody id="totals-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </aside>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="https://unpkg.com/@turf/turf@7.1.0/turf.min.js"></script>
+  <script src="js/map.js?v=8"></script>
+</body>
+</html>
