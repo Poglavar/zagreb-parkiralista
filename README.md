@@ -31,7 +31,7 @@ Snapshot: travanj 2026.
 | **4 — Web preglednik** | shipped | Leaflet + admin level dropdown + headline statistike + per-area tablica + tile preview u popup-u |
 | **5 — LLM cartographer** | shipped + validated | 17 composites generirano i procesirano; **96 Claude prijedloga + 4 GPT-5 prijedloga = 100 ukupno**. Podrška za oba providera (`--provider anthropic\|openai\|both`) u `31_llm_propose.py`. Output u `data/candidates/llm_parking_candidates.geojson`, render u viewer-u s teal (Claude) i magenta (GPT) bojama. |
 | **6 — Street View + LLM** | POC shipped | Self-contained Node.js sub-project u `street-view/`. Dohvaća Google Street View Static API frame-ove po segmentu ulice, šalje ih OpenAI GPT-5.4 vision API-ju za semantičku klasifikaciju (parkira li se ovdje? lijevo/desno? formalno/neformalno?), generira curb-strip parking polygone, i sadrži statički review UI (`review.html`) za ljudsku provjeru. Komplementaran s Fazom 5 (Faza 5 gleda odozgo, Faza 6 popreko). |
-| **API** — `/api/admin/borders` | shipped | Dodano u shared `cadastre-data/api`, izlaže administrativne granice iz `city_border` PostGIS tablice |
+| **API** — `/api/borders` | shipped | Dodano u shared `cadastre-data/api` (`domains/borders/`), izlaže administrativne-division granice (gradske četvrti / naselja / mjesni odbori) iz `city_border` PostGIS tablice. Naziv `borders` umjesto `admin` jer je riječ o administrativnim *podjelama*, ne autentifikaciji. |
 
 ### Ključne brojke (verificirano iz aktualnih datoteka)
 
@@ -313,7 +313,7 @@ Jednostavni HTML/CSS/JS preglednik (Leaflet.js + OSM base layer) koji prikazuje 
 
 Dodatne komponente:
 - **Headline statistika**: ukupno parking mjesta (s otvoreno/zatvoreno sub-line), broj parkirališta, ukupna km² površina
-- **Admin level dropdown**: Cijeli grad / Gradske četvrti / Naselja / Mjesni odbori — borders dohvaćeni iz `/api/admin/borders` endpoint-a u shared cadastre-data API-ju
+- **Admin level dropdown**: Cijeli grad / Gradske četvrti / Naselja / Mjesni odbori — borders dohvaćeni iz `/api/borders` endpoint-a u shared cadastre-data API-ju (`domains/borders/`)
 - **Per-area tablica**: za odabranu admin razinu, sortable lista po kapacitetu / broju parkirališta / površini / imenu, s otvoreno/zatvoreno breakdown-om
 - **Klik na red u tablici** → highlight te admin zone na karti + auto-zoom
 
@@ -405,7 +405,7 @@ zagreb-parkiralista/
         └── informal_parking.geojson       # Faza 3 output
 ```
 
-Shared API endpoint za administrativne granice je u `/Users/simun/Code/cadastre-data/api/src/domains/admin/routes.js`.
+Shared API endpoint za administrativne granice je u `/Users/simun/Code/cadastre-data/api/src/domains/borders/routes.js`.
 
 ## Quick start
 

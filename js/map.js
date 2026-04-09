@@ -41,7 +41,7 @@ const layers = {
 };
 
 // In-memory caches keyed by URL so re-selecting an admin level is instant.
-const adminBordersCache = new Map();
+const bordersCache = new Map();
 
 // Source-of-truth slices used for aggregation. Populated by loadOsmLayer().
 let osmFeatureCollection = null;
@@ -646,13 +646,16 @@ function setAdminStatus(text) {
 }
 
 async function fetchAdminBorders(level) {
-  const url = `${API_BASE}/api/admin/borders?city=Zagreb&level=${level}`;
-  if (adminBordersCache.has(url)) return adminBordersCache.get(url);
+  // Endpoint is `/api/borders` in the shared cadastre-data API. The viewer-
+  // side function name kept "Admin" for the UI labels (Administrativne razine);
+  // only the URL changed.
+  const url = `${API_BASE}/api/borders?city=Zagreb&level=${level}`;
+  if (bordersCache.has(url)) return bordersCache.get(url);
   setAdminStatus(`učitavam ${ADMIN_LEVEL_LABELS[level] || ""}…`);
   const res = await fetch(url);
   if (!res.ok) throw new Error(`API HTTP ${res.status} from ${url}`);
   const fc = await res.json();
-  adminBordersCache.set(url, fc);
+  bordersCache.set(url, fc);
   return fc;
 }
 

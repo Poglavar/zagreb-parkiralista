@@ -3,7 +3,7 @@
 # main server. Server pulls from github (no rsync), then we copy the static
 # frontend + data files into the nginx web root.
 #
-# The cadastre-data/api endpoint /api/admin/borders is deployed separately
+# The cadastre-data/api endpoint /api/borders is deployed separately
 # from cadastre-data — this script does not touch the API.
 set -e
 
