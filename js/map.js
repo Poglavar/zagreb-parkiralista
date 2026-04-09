@@ -355,10 +355,7 @@ function buildTileCropHtml(props) {
   const dispX = cx - cropX - dispW / 2;
   const dispY = cy - cropY - dispH / 2;
 
-  // Append a version query string so we bypass any stale Cloudflare cache
-  // entries from before the nginx /parkiralista/data/ location block was
-  // added (which used to fall through to index.html for missing tiles).
-  const url = `${TILE_JPG_BASE}/${encodeURIComponent(tile)}.jpg?v=2`;
+  const url = `${TILE_JPG_BASE}/${encodeURIComponent(tile)}.jpg`;
   return `
     <div class="tile-crop" style="background-image: url('${url}'); background-position: -${cropX}px -${cropY}px;">
       <div class="tile-crop-bbox" style="left: ${dispX}px; top: ${dispY}px; width: ${dispW}px; height: ${dispH}px;"></div>
