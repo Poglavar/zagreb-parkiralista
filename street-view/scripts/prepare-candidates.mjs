@@ -1,6 +1,6 @@
 // This script turns input road segments into Street View capture candidates, headings, and preview curb polygons.
 import { pathToFileURL } from "url";
-import { buildParkingSidePolygon } from "./lib/parking.mjs";
+import { buildParkingSidePolygons } from "./lib/parking.mjs";
 import {
   headingAtDistance,
   interpolateAlongPolyline,
@@ -151,28 +151,21 @@ export async function prepareCandidates({ input, out, size, fov, pitch, radius }
       turn_degrees: turnDegrees,
       station_count: stationFractions.length,
       geometry: feature.geometry,
-      preview_polygons: {
-        left_road_level: buildParkingSidePolygon(coords, {
-          side: "left",
-          roadWidthM: Number(feature.properties.width_m),
-          parkingLevel: "road_level"
-        }),
-        right_road_level: buildParkingSidePolygon(coords, {
-          side: "right",
-          roadWidthM: Number(feature.properties.width_m),
-          parkingLevel: "road_level"
-        }),
-        left_sidewalk: buildParkingSidePolygon(coords, {
-          side: "left",
-          roadWidthM: Number(feature.properties.width_m),
-          parkingLevel: "sidewalk"
-        }),
-        right_sidewalk: buildParkingSidePolygon(coords, {
-          side: "right",
-          roadWidthM: Number(feature.properties.width_m),
-          parkingLevel: "sidewalk"
-        })
-      },
+      preview_polygons: Object.fromEntries(
+        ["left", "right"].flatMap((side) =>
+          ["road_level", "sidewalk"].flatMap((level) =>
+            ["parallel", "perpendicular", "diagonal"].map((manner) => [
+              `${side}_${level}_${manner}`,
+              buildParkingSidePolygons(coords, {
+                side,
+                roadWidthM: Number(feature.properties.width_m),
+                parkingLevel: level,
+                parkingManner: manner
+              })
+            ])
+          )
+        )
+      ),
       captures
     };
   });

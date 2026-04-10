@@ -1,6 +1,6 @@
 // This script turns AI or reviewed side decisions into approximate curbside parking polygons.
 import { pathToFileURL } from "url";
-import { buildParkingSidePolygon } from "./lib/parking.mjs";
+import { buildParkingSidePolygons } from "./lib/parking.mjs";
 import { fileExists, readJson, resolveFrom, writeJson } from "./lib/io.mjs";
 
 function parseArgs(argv) {
@@ -76,36 +76,38 @@ export async function buildParkingAreas({ candidates, analyses, overrides, out }
       const sideAssessment = resolved.assessment[assessmentKey];
       if (!sideAssessment?.parking_present) continue;
 
-      const ring = buildParkingSidePolygon(segment.geometry.coordinates, {
+      const rings = buildParkingSidePolygons(segment.geometry.coordinates, {
         side,
         roadWidthM: segment.width_m,
-        parkingLevel: sideAssessment.parking_level
+        parkingLevel: sideAssessment.parking_level,
+        parkingManner: sideAssessment.parking_manner
       });
-      if (!ring) continue;
+      if (rings.length === 0) continue;
 
-      features.push({
-        type: "Feature",
-        geometry: {
-          type: "Polygon",
-          coordinates: [ring]
-        },
-        properties: {
-          segment_id: segment.segment_id,
-          label: segment.label,
-          side,
-          decision: resolved.assessment.decision,
-          parking_manner: sideAssessment.parking_manner,
-          parking_level: sideAssessment.parking_level,
-          formality: sideAssessment.formality,
-          confidence: sideAssessment.confidence,
-          notes: resolved.assessment.overall_notes,
-          width_m: segment.width_m,
-          length_m: segment.length_m,
-          source: resolved.source,
-          review_status: resolved.review_status
-        }
-      });
-    }
+      for (const ring of rings) {
+        features.push({
+          type: "Feature",
+          geometry: {
+            type: "Polygon",
+            coordinates: [ring]
+          },
+          properties: {
+            segment_id: segment.segment_id,
+            label: segment.label,
+            side,
+            decision: resolved.assessment.decision,
+            parking_manner: sideAssessment.parking_manner,
+            parking_level: sideAssessment.parking_level,
+            formality: sideAssessment.formality,
+            confidence: sideAssessment.confidence,
+            notes: resolved.assessment.overall_notes,
+            width_m: segment.width_m,
+            length_m: segment.length_m,
+            source: resolved.source,
+            review_status: resolved.review_status
+          }
+        });
+      }
   }
 
   await writeJson(out, {

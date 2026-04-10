@@ -1,34 +1,37 @@
-<!-- This page is a static reviewer for Street View parking assessments produced by the local POC pipeline. -->
+<!-- Reviewer for AI-generated parking area polygons, loaded from the parking API. -->
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Street View Parking Review</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <link rel="stylesheet" href="./review.css" />
   </head>
   <body>
     <header class="topbar">
-      <div>
-        <p class="eyebrow">Street View Parking POC</p>
-        <h1>Segment Review</h1>
-      </div>
-      <div class="topbar-actions">
-        <button id="prevButton" type="button">Previous</button>
-        <button id="nextButton" type="button">Next</button>
-        <button id="exportButton" type="button">Export Overrides</button>
-        <label class="import-button">
-          Import Overrides
-          <input id="importInput" type="file" accept="application/json" hidden />
-        </label>
-      </div>
+      <h1 class="topbar-title">Segment Review</h1>
+      <label class="topbar-area-label muted">
+        Area
+        <select id="areaSelect"></select>
+      </label>
+      <label class="topbar-area-label muted">
+        Status
+        <select id="reviewFilterField">
+          <option value="all">all</option>
+          <option value="pending">pending</option>
+          <option value="confirmed">confirmed</option>
+          <option value="suspect">suspect</option>
+        </select>
+      </label>
+      <input id="segmentSearchField" type="search" placeholder="Search segment..." class="topbar-search" />
     </header>
 
     <main class="layout">
       <aside class="segment-rail">
         <div class="card rail-card">
           <h2>Segments</h2>
-          <p id="segmentCount" class="muted">Loading…</p>
+          <p id="segmentCount" class="muted">Loading...</p>
           <div id="segmentList" class="segment-list"></div>
         </div>
       </aside>
@@ -38,22 +41,10 @@
           <div class="card-header">
             <div>
               <p class="eyebrow">Current Segment</p>
-              <h2 id="segmentTitle">Loading…</h2>
-            </div>
-            <div class="card-header-actions">
-              <a id="mapsLink" href="#" target="_blank" rel="noopener">Open in Maps</a>
+              <h2 id="segmentTitle">Loading...</h2>
             </div>
           </div>
           <div id="segmentMeta" class="meta-grid"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <p class="eyebrow">Capture Images</p>
-              <h2>Capture Grid</h2>
-            </div>
-          </div>
           <div id="captureGrid" class="capture-grid"></div>
         </div>
 
@@ -61,58 +52,25 @@
           <div class="card-header">
             <div>
               <p class="eyebrow">Segment Geometry</p>
-              <h2>Segment Diagram</h2>
+              <h2>Segment Map</h2>
             </div>
           </div>
-          <svg id="segmentDiagram" viewBox="0 0 760 300" class="diagram" aria-label="Segment diagram"></svg>
-        </div>
-      </section>
-
-      <section class="review-column">
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <p class="eyebrow">Model Output</p>
-              <h2>AI Summary</h2>
+          <div class="dual-map-shell">
+            <div id="diagramShell" class="diagram-shell">
+              <div id="segmentMap" class="segment-map" aria-label="OSM segment map"></div>
             </div>
-            <button id="acceptAiButton" type="button">Mark Agree</button>
-          </div>
-          <div id="aiSummary" class="summary-stack"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <p class="eyebrow">Human Review</p>
-              <h2>Override Form</h2>
+            <div class="diagram-shell">
+              <div id="satelliteMap" class="segment-map" aria-label="Satellite segment map"></div>
             </div>
-            <button id="clearOverrideButton" type="button">Clear Override</button>
           </div>
 
-          <form id="overrideForm" class="override-form">
-            <div class="form-row">
-              <label>
-                Overall decision
-                <select id="decisionField">
-                  <option value="unclear">unclear</option>
-                  <option value="none">none</option>
-                  <option value="left">left</option>
-                  <option value="right">right</option>
-                  <option value="both">both</option>
-                </select>
-              </label>
-              <label>
-                Overall confidence
-                <input id="confidenceField" type="number" step="0.01" min="0" max="1" />
-              </label>
-            </div>
-
+          <!-- Assessment: inline-editable, preset from AI -->
+          <form id="overrideForm" class="assessment-form">
             <div class="side-grid">
-              <fieldset>
+              <fieldset class="side-fieldset">
                 <legend>Left Side</legend>
-                <label><span>Parking present</span><input id="leftPresentField" type="checkbox" /></label>
-                <label>
-                  <span>Manner</span>
+                <div class="side-summary-row">
+                  <label class="check-label"><input id="leftPresentField" type="checkbox" /> Parking</label>
                   <select id="leftMannerField">
                     <option value="none">none</option>
                     <option value="parallel">parallel</option>
@@ -121,41 +79,27 @@
                     <option value="mixed">mixed</option>
                     <option value="unknown">unknown</option>
                   </select>
-                </label>
-                <label>
-                  <span>Level</span>
                   <select id="leftLevelField">
-                    <option value="road_level">road_level</option>
+                    <option value="road_level">road level</option>
                     <option value="sidewalk">sidewalk</option>
-                    <option value="gravel_shoulder">gravel_shoulder</option>
+                    <option value="gravel_shoulder">gravel shoulder</option>
                     <option value="mixed">mixed</option>
                     <option value="unknown">unknown</option>
                   </select>
-                </label>
-                <label>
-                  <span>Formality</span>
                   <select id="leftFormalityField">
                     <option value="formal">formal</option>
                     <option value="informal">informal</option>
                     <option value="mixed">mixed</option>
                     <option value="unknown">unknown</option>
                   </select>
-                </label>
-                <label>
-                  <span>Confidence</span>
-                  <input id="leftConfidenceField" type="number" step="0.01" min="0" max="1" />
-                </label>
-                <label>
-                  <span>Evidence</span>
-                  <textarea id="leftEvidenceField" rows="4" placeholder="One point per line"></textarea>
-                </label>
+                  <span class="confidence-display muted" id="leftConfidenceDisplay"></span>
+                </div>
+                <input id="leftConfidenceField" type="hidden" />
               </fieldset>
-
-              <fieldset>
+              <fieldset class="side-fieldset">
                 <legend>Right Side</legend>
-                <label><span>Parking present</span><input id="rightPresentField" type="checkbox" /></label>
-                <label>
-                  <span>Manner</span>
+                <div class="side-summary-row">
+                  <label class="check-label"><input id="rightPresentField" type="checkbox" /> Parking</label>
                   <select id="rightMannerField">
                     <option value="none">none</option>
                     <option value="parallel">parallel</option>
@@ -164,58 +108,43 @@
                     <option value="mixed">mixed</option>
                     <option value="unknown">unknown</option>
                   </select>
-                </label>
-                <label>
-                  <span>Level</span>
                   <select id="rightLevelField">
-                    <option value="road_level">road_level</option>
+                    <option value="road_level">road level</option>
                     <option value="sidewalk">sidewalk</option>
-                    <option value="gravel_shoulder">gravel_shoulder</option>
+                    <option value="gravel_shoulder">gravel shoulder</option>
                     <option value="mixed">mixed</option>
                     <option value="unknown">unknown</option>
                   </select>
-                </label>
-                <label>
-                  <span>Formality</span>
                   <select id="rightFormalityField">
                     <option value="formal">formal</option>
                     <option value="informal">informal</option>
                     <option value="mixed">mixed</option>
                     <option value="unknown">unknown</option>
                   </select>
-                </label>
-                <label>
-                  <span>Confidence</span>
-                  <input id="rightConfidenceField" type="number" step="0.01" min="0" max="1" />
-                </label>
-                <label>
-                  <span>Evidence</span>
-                  <textarea id="rightEvidenceField" rows="4" placeholder="One point per line"></textarea>
-                </label>
+                  <span class="confidence-display muted" id="rightConfidenceDisplay"></span>
+                </div>
+                <input id="rightConfidenceField" type="hidden" />
               </fieldset>
             </div>
-
-            <label>
-              Reviewer notes
-              <textarea id="reviewerNotesField" rows="4"></textarea>
-            </label>
-
-            <div class="form-actions">
-              <button id="saveOverrideButton" type="submit">Save Override</button>
-              <span id="reviewStatus" class="muted">No local override.</span>
-            </div>
+            <input id="decisionField" type="hidden" />
+            <input id="confidenceField" type="hidden" />
+            <input id="reviewerNotesField" type="hidden" />
           </form>
+
+          <!-- Action bar -->
+          <div class="action-bar">
+            <button id="acceptAiButton" type="button" class="btn-confirm">Confirm</button>
+            <button id="suspectButton" type="button">Suspect</button>
+            <span class="action-spacer"></span>
+            <button id="prevButton" type="button">Previous</button>
+            <button id="nextButton" type="button">Next</button>
+          </div>
+          <div id="osmSubmitStatus" class="summary-block muted"></div>
         </div>
       </section>
     </main>
 
-    <template id="captureCardTemplate">
-      <article class="capture-card">
-        <div class="capture-media"></div>
-        <div class="capture-meta"></div>
-      </article>
-    </template>
-
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script type="module" src="./review.js"></script>
   </body>
 </html>

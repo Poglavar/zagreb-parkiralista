@@ -9,9 +9,17 @@
     "fetch:metadata": "node scripts/fetch-street-view-metadata.mjs",
     "fetch:images": "node scripts/fetch-street-view-images.mjs",
     "analyze:openai": "node scripts/analyze-openai.mjs",
+    "batch:submit": "node scripts/submit-openai-batch.mjs",
+    "batch:import": "node scripts/import-openai-batch.mjs",
+    "batch:status": "node scripts/import-openai-batch.mjs --status",
     "build:polygons": "node scripts/build-parking-areas.mjs",
     "build:bundle": "node scripts/build-review-bundle.mjs",
     "serve": "python3 -m http.server 8015",
+    "ingest:db": "node scripts/ingest-to-db.mjs",
+    "osm:upload": "node scripts/upload-to-osm.mjs",
     "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.20.0"
   }
 }

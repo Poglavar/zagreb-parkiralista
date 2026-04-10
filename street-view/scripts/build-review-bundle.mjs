@@ -1,5 +1,8 @@
 // This script assembles the static review bundle consumed by review.html from captures, analyses, and optional overrides.
+import { readdir } from "fs/promises";
+import path from "path";
 import { pathToFileURL } from "url";
+import { buildReviewBundleCatalog, isReviewBundleFileName } from "./lib/review-bundle-catalog.mjs";
 import { fileExists, readJson, resolveFrom, writeJson } from "./lib/io.mjs";
 
 function parseArgs(argv) {
@@ -62,7 +65,7 @@ export async function buildReviewBundle({ candidates, metadata, images, analyses
     local_override: overrideData.overrides?.[String(segment.segment_id)] || null
   }));
 
-  await writeJson(out, {
+  const payload = {
     generated_at: new Date().toISOString(),
     candidates,
     metadata: (await fileExists(metadata)) ? metadata : null,
@@ -71,9 +74,30 @@ export async function buildReviewBundle({ candidates, metadata, images, analyses
     overrides: (await fileExists(overrides)) ? overrides : null,
     segment_count: segments.length,
     segments
+  };
+
+  await writeJson(out, payload);
+
+  const outDir = path.dirname(out);
+  const bundleFiles = (await readdir(outDir)).filter(isReviewBundleFileName);
+  const bundles = buildReviewBundleCatalog(
+    await Promise.all(
+      bundleFiles.map(async (fileName) => ({
+        fileName,
+        payload: await readJson(path.join(outDir, fileName))
+      }))
+    )
+  );
+  const catalogPath = path.join(outDir, "review-bundle-catalog.json");
+  await writeJson(catalogPath, {
+    generated_at: new Date().toISOString(),
+    latest_bundle_path: bundles[0]?.path || null,
+    bundle_count: bundles.length,
+    bundles
   });
 
   console.log(`Wrote review bundle to ${out}`);
+  console.log(`Wrote review bundle catalog to ${catalogPath}`);
 }
 
 async function main() {

@@ -138,6 +138,8 @@ html, body {
 .swatch-enclosed { background: #7c3aed; border-color: #581c87; }
 .swatch-ml { background: #f59e0b; }
 .swatch-informal { background: #dc2626; }
+.swatch-street-view { background: #8b5cf6; border-color: #4c1d95; }
+.swatch-street-view-suspect { background: #fbbf24; border-color: #b45309; }
 .swatch-llm { background: #14b8a6; border-color: #134e4a; }
 .swatch-llm-anthropic { background: #14b8a6; border-color: #134e4a; }
 .swatch-llm-openai { background: #ec4899; border-color: #831843; }

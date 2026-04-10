@@ -877,6 +877,87 @@ async function selectAdminLevel(value) {
   }
 }
 
+// ───────── Street View reviewed parking layer ─────────
+
+async function loadStreetViewLayer(map) {
+  const url = `${API_BASE}/api/parking/areas`;
+  let res;
+  try {
+    res = await fetch(url, { cache: "no-store" });
+  } catch (err) {
+    return null;
+  }
+  if (!res.ok) return null;
+
+  let fc;
+  try {
+    fc = await res.json();
+  } catch (err) {
+    console.warn("Street View parking API response malformed:", err);
+    return null;
+  }
+  if (!fc || fc.type !== "FeatureCollection" || !Array.isArray(fc.features)) return null;
+  if (fc.features.length === 0) return null;
+
+  const confirmed = fc.features.filter((f) => f.properties?.review_status !== "suspect");
+  const suspect = fc.features.filter((f) => f.properties?.review_status === "suspect");
+
+  function streetViewStyle(feature) {
+    const isSuspect = feature.properties?.review_status === "suspect";
+    return {
+      color: isSuspect ? "#b45309" : "#6d28d9",
+      weight: 2,
+      fillColor: isSuspect ? "#fbbf24" : "#8b5cf6",
+      fillOpacity: isSuspect ? 0.35 : 0.45,
+      dashArray: isSuspect ? "6 4" : null,
+    };
+  }
+
+  function streetViewPopup(feature, lyr) {
+    const p = feature.properties || {};
+    const tags = p.tags || {};
+    const statusLabel = p.review_status === "suspect" ? " (sumnjivo)" : "";
+    const html = `
+      <strong>Street View pregled${statusLabel}</strong>
+      <table class="popup-table">
+        <tr><th>Segment</th><td>${escapeHtml(p.segment_id || "—")} · ${escapeHtml(p.side || "—")}</td></tr>
+        <tr><th>Način</th><td>${escapeHtml(tags.parking_manner || "—")}</td></tr>
+        <tr><th>Razina</th><td>${escapeHtml(tags.parking_level || "—")}</td></tr>
+        <tr><th>Formalnost</th><td>${escapeHtml(tags.formality || "—")}</td></tr>
+        <tr><th>Pouzdanost</th><td>${p.confidence != null ? Number(p.confidence).toFixed(2) : "—"}</td></tr>
+        <tr><th>Status</th><td>${escapeHtml(p.review_status || "pending")}</td></tr>
+      </table>
+    `;
+    lyr.bindPopup(html, { maxWidth: 320 });
+  }
+
+  const confirmedLayer = L.geoJSON({ type: "FeatureCollection", features: confirmed }, {
+    style: streetViewStyle,
+    onEachFeature: streetViewPopup,
+  });
+  const suspectLayer = L.geoJSON({ type: "FeatureCollection", features: suspect }, {
+    style: streetViewStyle,
+    onEachFeature: streetViewPopup,
+  });
+
+  confirmedLayer.addTo(map);
+  if (suspect.length > 0) suspectLayer.addTo(map);
+
+  layers.streetView = confirmedLayer;
+  layers.streetViewSuspect = suspectLayer;
+
+  // Count excludes suspect
+  const countEl = document.getElementById("count-street-view");
+  const toggleEl = document.getElementById("toggle-street-view");
+  if (countEl) countEl.textContent = confirmed.length;
+  if (toggleEl) toggleEl.disabled = false;
+
+  const suspectCountEl = document.getElementById("count-street-view-suspect");
+  const suspectToggleEl = document.getElementById("toggle-street-view-suspect");
+  if (suspectCountEl) suspectCountEl.textContent = suspect.length;
+  if (suspectToggleEl) suspectToggleEl.disabled = false;
+}
+
 // ───────── Layer toggles ─────────
 
 function wireToggle(checkboxId, layerName) {
@@ -906,6 +987,7 @@ function init() {
   loadMlLayer(mapRef);
   loadInformalLayer(mapRef);
   loadLlmLayer(mapRef);
+  loadStreetViewLayer(mapRef);
 
   wireToggle("toggle-osm-open", "osmOpen");
   wireToggle("toggle-osm-enclosed", "osmEnclosed");
@@ -913,6 +995,8 @@ function init() {
   wireToggle("toggle-informal", "informal");
   wireToggle("toggle-llm-anthropic", "llmAnthropic");
   wireToggle("toggle-llm-openai", "llmOpenai");
+  wireToggle("toggle-street-view", "streetView");
+  wireToggle("toggle-street-view-suspect", "streetViewSuspect");
 
   document.getElementById("admin-level").addEventListener("change", (e) => {
     selectAdminLevel(e.target.value);

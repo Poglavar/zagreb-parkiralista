@@ -1,5 +1,5 @@
 // This script fetches paid Street View images only for captures whose metadata preflight succeeded.
-import { writeFile } from "fs/promises";
+import { writeFile, access } from "fs/promises";
 import path from "path";
 import { pathToFileURL } from "url";
 import { estimateGoogleStreetViewImageCost } from "./lib/billing.mjs";
@@ -96,32 +96,58 @@ export async function fetchStreetViewImages({ candidates, metadata, out, imageDi
     if (!capture || !item.ok) {
       continue;
     }
-    await waitForRequestGap(delayMs, manifest.length);
     const panoId = item.response.pano_id;
-    const url = buildImageUrl(capture, panoId, size, apiKey);
-    const response = await fetch(url);
-    if (!response.ok) {
+    const relativePath = `out/images/${capture.capture_id}.jpg`;
+    const absolutePath = path.resolve(imageDir, `${capture.capture_id}.jpg`);
+
+    // Skip if already downloaded (resume support)
+    try {
+      await access(absolutePath);
+      manifest.push({
+        capture_id: capture.capture_id,
+        segment_id: item.segment_id,
+        ok: true,
+        image_path: relativePath,
+        pano_id: panoId
+      });
+      continue;
+    } catch {
+      // File does not exist — fetch it
+    }
+
+    await waitForRequestGap(delayMs, manifest.length);
+    try {
+      const url = buildImageUrl(capture, panoId, size, apiKey);
+      const response = await fetch(url);
+      if (!response.ok) {
+        manifest.push({
+          capture_id: capture.capture_id,
+          segment_id: item.segment_id,
+          ok: false,
+          error: `HTTP ${response.status}`
+        });
+        continue;
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      await writeFile(absolutePath, new Uint8Array(arrayBuffer));
+      manifest.push({
+        capture_id: capture.capture_id,
+        segment_id: item.segment_id,
+        ok: true,
+        image_path: relativePath,
+        pano_id: panoId
+      });
+      console.log(`Saved ${relativePath}`);
+    } catch (err) {
+      console.error(`Failed ${capture.capture_id}: ${err.message}`);
       manifest.push({
         capture_id: capture.capture_id,
         segment_id: item.segment_id,
         ok: false,
-        error: `HTTP ${response.status}`
+        error: err.message
       });
-      continue;
     }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const relativePath = `out/images/${capture.capture_id}.jpg`;
-    const absolutePath = path.resolve(imageDir, `${capture.capture_id}.jpg`);
-    await writeFile(absolutePath, new Uint8Array(arrayBuffer));
-    manifest.push({
-      capture_id: capture.capture_id,
-      segment_id: item.segment_id,
-      ok: true,
-      image_path: relativePath,
-      pano_id: panoId
-    });
-    console.log(`Saved ${relativePath}`);
   }
 
   await writeJson(out, {

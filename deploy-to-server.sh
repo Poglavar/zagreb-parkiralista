@@ -54,8 +54,29 @@ ${SSH_CMD} "
     cp ${REPO_PATH}/data/candidates/vehicles.geojson        ${WEB_ROOT}/data/candidates/vehicles.geojson || true
 "
 
+# 3. Deploy street-view review UI
+echo "Deploying street-view review UI…"
+${SSH_CMD} "
+    mkdir -p ${WEB_ROOT}/unos/scripts/lib
+    mkdir -p ${WEB_ROOT}/unos/out/images
+
+    cp ${REPO_PATH}/street-view/review.html ${WEB_ROOT}/unos/review.html
+    cp ${REPO_PATH}/street-view/review.css  ${WEB_ROOT}/unos/review.css
+    cp ${REPO_PATH}/street-view/review.js   ${WEB_ROOT}/unos/review.js
+
+    cp ${REPO_PATH}/street-view/scripts/lib/osm-submit.mjs    ${WEB_ROOT}/unos/scripts/lib/osm-submit.mjs
+    cp ${REPO_PATH}/street-view/scripts/lib/review-map.mjs     ${WEB_ROOT}/unos/scripts/lib/review-map.mjs
+    cp ${REPO_PATH}/street-view/scripts/lib/review-bundle-catalog.mjs ${WEB_ROOT}/unos/scripts/lib/review-bundle-catalog.mjs
+
+    cp ${REPO_PATH}/street-view/out/review-bundle-catalog.json ${WEB_ROOT}/unos/out/review-bundle-catalog.json || true
+    cp ${REPO_PATH}/street-view/out/*-review-bundle.json       ${WEB_ROOT}/unos/out/ || true
+    cp ${REPO_PATH}/street-view/out/review-bundle.json         ${WEB_ROOT}/unos/out/ || true
+    cp -r ${REPO_PATH}/street-view/out/images/.                ${WEB_ROOT}/unos/out/images/ 2>/dev/null || true
+"
+
 echo "=== Deployment complete ==="
 echo "Frontend: https://zagreb.lol/parkiralista"
+echo "Review UI: https://zagreb.lol/parkiralista/unos/review.html"
 echo ""
 echo "NOTE: nginx must serve static files from ${WEB_ROOT} and proxy"
 echo "/parkiralista/api/* to the cadastre-data API on :3001 if you want"

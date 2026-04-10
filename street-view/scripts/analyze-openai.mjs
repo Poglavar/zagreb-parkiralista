@@ -21,7 +21,8 @@ function parseArgs(argv) {
     model: "gpt-5.4",
     delayMs: 1000,
     imageDetail: "auto",
-    batchJsonl: null,
+    batchJsonl: resolveFrom(import.meta.url, "../out/openai-batch.jsonl"),
+    live: false,
     segmentId: null
   };
 
@@ -34,9 +35,13 @@ function parseArgs(argv) {
     else if (argv[i] === "--delay-ms") args.delayMs = Number(argv[++i]);
     else if (argv[i] === "--image-detail") args.imageDetail = argv[++i];
     else if (argv[i] === "--batch-jsonl") args.batchJsonl = argv[++i];
+    else if (argv[i] === "--live") { args.live = true; args.batchJsonl = null; }
     else if (argv[i] === "--segment-id") args.segmentId = String(argv[++i]);
     else if (argv[i] === "--help") {
-      console.log("Usage: node scripts/analyze-openai.mjs [--batch-jsonl path] [--model gpt-5.4] [--delay-ms 1000] [--image-detail auto|low|high] [--segment-id id]");
+      console.log("Usage: node scripts/analyze-openai.mjs [--batch-jsonl path] [--live] [--model gpt-5.4] [--delay-ms 1000] [--image-detail auto|low|high] [--segment-id id]");
+      console.log("");
+      console.log("Default: writes Batch API JSONL to out/openai-batch.jsonl (no API calls).");
+      console.log("Use --live to call OpenAI directly (costs 2x vs batch). Requires OPENAI_API_KEY.");
       process.exit(0);
     } else {
       throw new Error(`Unknown argument: ${argv[i]}`);
@@ -98,7 +103,7 @@ function buildRequestBody(segment, imageDataUrls, model, imageDetail) {
   };
 }
 
-export async function analyzeWithOpenAi({ candidates, images, out, keyEnv, model, delayMs, imageDetail, batchJsonl, segmentId }) {
+export async function analyzeWithOpenAi({ candidates, images, out, keyEnv, model, delayMs, imageDetail, batchJsonl, live, segmentId }) {
   const candidateData = await readJson(candidates);
   const imageManifest = await readJson(images);
   const imageByCaptureId = new Map(
@@ -142,6 +147,10 @@ export async function analyzeWithOpenAi({ candidates, images, out, keyEnv, model
   console.log(
     `OpenAI analysis run: ${segmentsWithImages.length} segments, ${totalImageCount} images, detail=${imageDetail}, ${delayMs}ms spacing, ${summarizeOpenAiImageEstimate(runImageEstimate)} before text/output tokens.`
   );
+
+  if (!batchJsonl && !live) {
+    throw new Error("Safety: live API mode is not the default. Use --live to call OpenAI directly, or --batch-jsonl to write a batch file (default).");
+  }
 
   if (batchJsonl) {
     const lines = [];
