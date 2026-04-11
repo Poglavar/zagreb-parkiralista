@@ -21,7 +21,6 @@ const els = {
   areaSelect: document.getElementById("areaSelect"),
   reviewFilterField: document.getElementById("reviewFilterField"),
   captureGrid: document.getElementById("captureGrid"),
-  segmentTitle: document.getElementById("segmentTitle"),
   segmentMeta: document.getElementById("segmentMeta"),
   diagramShell: document.getElementById("diagramShell"),
   segmentMap: document.getElementById("segmentMap"),
@@ -301,7 +300,6 @@ function updateFormPreview() {
 // --- Rendering ---
 
 function renderMeta(segment) {
-  els.segmentTitle.textContent = segment.label || segment.segment_id;
   const parts = [
     `#${segment.segment_id}`,
     segment.length_m ? `${formatNumber(segment.length_m)}m` : null,
@@ -528,8 +526,8 @@ function ensureLeafletMap() {
     // Load OSM parking as a reference layer (below our polygons)
     fetch(OSM_PARKING_URL).then((r) => r.ok ? r.json() : null).then((fc) => {
       if (!fc?.features) return;
-      const osmStyle = { radius: 3, weight: 0.5, color: "#475569", fillColor: "#94a3b8", fillOpacity: 0.4 };
-      const polyStyle = { weight: 1, color: "#475569", fillColor: "#94a3b8", fillOpacity: 0.15 };
+      const osmStyle = { radius: 4, weight: 0.5, color: "#be185d", fillColor: "#f472b6", fillOpacity: 0.6 };
+      const polyStyle = { weight: 1.5, color: "#be185d", fillColor: "#fbcfe8", fillOpacity: 0.25 };
       const osmLayer = window.L.geoJSON(fc, {
         pointToLayer: (f, ll) => window.L.circleMarker(ll, osmStyle),
         style: () => polyStyle,
@@ -685,7 +683,6 @@ function renderSelection(segment) {
 // --- Render ---
 
 function renderEmptyState() {
-  els.segmentTitle.textContent = "Nema segmenata";
   els.segmentMeta.innerHTML = "";
   els.prevButton.disabled = true;
   els.nextButton.disabled = true;
@@ -840,6 +837,39 @@ async function init() {
     field.addEventListener("input", updateFormPreview);
     field.addEventListener("change", updateFormPreview);
   });
+
+  // AI reasoning popups
+  const aiReasonModal = document.getElementById("aiReasonModal");
+  const aiReasonTitle = document.getElementById("aiReasonTitle");
+  const aiReasonContent = document.getElementById("aiReasonContent");
+  document.getElementById("aiReasonClose").addEventListener("click", () => { aiReasonModal.hidden = true; });
+  aiReasonModal.addEventListener("click", (e) => { if (e.target === aiReasonModal) aiReasonModal.hidden = true; });
+
+  function showAiReason(side) {
+    const segment = currentSegment();
+    if (!segment) return;
+    const sideData = segment.sides?.[side];
+    const tags = sideData?.tags || {};
+    const sideLabel = side === "left" ? "Lijeva strana" : "Desna strana";
+    aiReasonTitle.textContent = `AI obrazloženje — ${sideLabel}`;
+
+    const parts = [];
+    if (tags.decision) parts.push(`<strong>Odluka:</strong> ${tags.decision}`);
+    if (sideData?.confidence != null) parts.push(`<strong>Pouzdanost:</strong> ${Number(sideData.confidence).toFixed(2)}`);
+    if (tags.parking_manner) parts.push(`<strong>Način:</strong> ${tags.parking_manner}`);
+    if (tags.parking_level) parts.push(`<strong>Razina:</strong> ${tags.parking_level}`);
+    if (tags.formality) parts.push(`<strong>Formalnost:</strong> ${tags.formality}`);
+    if (tags.overall_notes) parts.push(`<strong>Bilješke:</strong> ${tags.overall_notes}`);
+    if (sideData?.provider) parts.push(`<strong>Model:</strong> ${sideData.provider} / ${sideData.model || "?"}`);
+
+    aiReasonContent.innerHTML = parts.length > 0
+      ? `<ul>${parts.map((p) => `<li>${p}</li>`).join("")}</ul>`
+      : "<p class='muted'>Nema dostupnog obrazloženja.</p>";
+    aiReasonModal.hidden = false;
+  }
+
+  document.getElementById("leftReasonBtn").addEventListener("click", () => showAiReason("left"));
+  document.getElementById("rightReasonBtn").addEventListener("click", () => showAiReason("right"));
 }
 
 init().catch((err) => {

@@ -138,7 +138,22 @@ html, body {
 .swatch-enclosed { background: #7c3aed; border-color: #581c87; }
 .swatch-ml { background: #f59e0b; }
 .swatch-informal { background: #dc2626; }
-.swatch-street-view { background: #8b5cf6; border-color: #4c1d95; }
+.layer-link {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #fff;
+  text-decoration: none;
+  background: #1d4ed8;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  margin-left: 0.3rem;
+  display: inline-block;
+  cursor: pointer;
+}
+.layer-link:hover { background: #1e40af; }
+
+.swatch-street-view { background: #64748b; border-color: #334155; }
+.swatch-street-view-pending { background: #8b5cf6; border-color: #4c1d95; }
 .swatch-street-view-suspect { background: #fbbf24; border-color: #b45309; }
 .swatch-llm { background: #14b8a6; border-color: #134e4a; }
 .swatch-llm-anthropic { background: #14b8a6; border-color: #134e4a; }
@@ -339,6 +354,19 @@ html, body {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.totals-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.totals-table th.sortable:hover {
+  color: #1d4ed8;
+}
+
+.totals-table th.sort-active {
+  color: #1d4ed8;
 }
 
 .totals-table th:first-child,

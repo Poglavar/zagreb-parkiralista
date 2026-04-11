@@ -24,12 +24,12 @@
           <option value="suspect">sumnjivo</option>
         </select>
       </label>
+      <a href="../" class="viewer-link">Karta</a>
     </header>
 
     <main class="layout">
       <section class="viewer-column">
         <div class="card">
-          <p class="eyebrow" id="segmentTitle">Učitavanje...</p>
           <div id="segmentMeta" class="meta-grid"></div>
           <div class="dual-map-shell">
             <div id="diagramShell" class="diagram-shell">
@@ -40,10 +40,10 @@
             </div>
           </div>
 
-          <form id="overrideForm" class="assessment-form">
-            <div class="side-grid">
+          <div class="controls-row">
+            <form id="overrideForm" class="assessment-form">
               <fieldset class="side-fieldset side-fieldset-left">
-                <legend>Lijeva strana</legend>
+                <legend>Lijeva strana <button type="button" class="ai-reason-btn" id="leftReasonBtn" title="AI obrazloženje">🧠</button></legend>
                 <div class="side-summary-row">
                   <label class="check-label"><input id="leftPresentField" type="checkbox" /> Parkiranje</label>
                   <select id="leftMannerField">
@@ -72,7 +72,7 @@
                 <input id="leftConfidenceField" type="hidden" />
               </fieldset>
               <fieldset class="side-fieldset side-fieldset-right">
-                <legend>Desna strana</legend>
+                <legend>Desna strana <button type="button" class="ai-reason-btn" id="rightReasonBtn" title="AI obrazloženje">🧠</button></legend>
                 <div class="side-summary-row">
                   <label class="check-label"><input id="rightPresentField" type="checkbox" /> Parkiranje</label>
                   <select id="rightMannerField">
@@ -100,23 +100,32 @@
                 </div>
                 <input id="rightConfidenceField" type="hidden" />
               </fieldset>
+              <input id="decisionField" type="hidden" />
+              <input id="confidenceField" type="hidden" />
+              <input id="reviewerNotesField" type="hidden" />
+            </form>
+            <div class="action-grid">
+              <button id="prevButton" type="button">&lsaquo; Prethodni</button>
+              <button id="acceptAiButton" type="button" class="btn-confirm">Potvrdi</button>
+              <button id="nextButton" type="button">Sljedeći &rsaquo;</button>
+              <button id="suspectButton" type="button">Sumnjivo</button>
             </div>
-            <input id="decisionField" type="hidden" />
-            <input id="confidenceField" type="hidden" />
-            <input id="reviewerNotesField" type="hidden" />
-          </form>
-
-          <div class="action-bar">
-            <button id="prevButton" type="button">&lsaquo; Prethodni</button>
-            <button id="nextButton" type="button">Sljedeći &rsaquo;</button>
-            <button id="acceptAiButton" type="button" class="btn-confirm">Potvrdi</button>
-            <button id="suspectButton" type="button">Sumnjivo</button>
           </div>
           <div id="osmSubmitStatus" class="summary-block muted"></div>
           <div id="captureGrid" class="capture-grid"></div>
         </div>
       </section>
     </main>
+
+    <div id="aiReasonModal" class="modal-overlay" hidden>
+      <div class="modal-card">
+        <p><strong id="aiReasonTitle">AI obrazloženje</strong></p>
+        <div id="aiReasonContent" class="ai-reason-content"></div>
+        <div class="modal-actions">
+          <button id="aiReasonClose" type="button">Zatvori</button>
+        </div>
+      </div>
+    </div>
 
     <div id="suspectModal" class="modal-overlay" hidden>
       <div class="modal-card">

@@ -114,8 +114,17 @@ export async function submitOpenAiBatch({ jsonl, keyEnv, tracker, chunkSize, max
   if (await fileExists(tracker)) {
     try {
       const prev = await readJson(tracker);
+      if (prev.chunk_size && prev.chunk_size !== chunkSize) {
+        throw new Error(
+          `Tracker was created with --chunk-size ${prev.chunk_size} but you're using ${chunkSize}. ` +
+          `Changing chunk size mid-run corrupts the mapping. Use --chunk-size ${prev.chunk_size} or start a fresh tracker.`
+        );
+      }
       existing = prev.chunks || [];
-    } catch { /* ignore */ }
+    } catch (err) {
+      if (err.message.includes("chunk size")) throw err;
+      /* ignore parse errors */
+    }
   }
   const submittedChunkIndexes = new Set(existing.map((c) => c.chunk_index));
 

@@ -46,30 +46,32 @@
       <span class="layer-label">Zatvorena (OSM)</span>
       <span class="count" id="count-osm-enclosed">—</span>
     </label>
+    <div class="layer-group">
+      <div class="layer-group-label">Street View <span class="count" id="count-street-view-all">—</span> <a href="street-view/review.html" class="layer-link">Pregledaj</a></div>
+      <label class="layer-toggle layer-toggle-sub">
+        <input type="checkbox" id="toggle-street-view-confirmed" checked disabled />
+        <span class="swatch swatch-street-view"></span>
+        <span class="layer-label">Potvrđeno</span>
+        <span class="count" id="count-street-view-confirmed">—</span>
+      </label>
+      <label class="layer-toggle layer-toggle-sub">
+        <input type="checkbox" id="toggle-street-view-pending" checked disabled />
+        <span class="swatch swatch-street-view-pending"></span>
+        <span class="layer-label">Čeka</span>
+        <span class="count" id="count-street-view-pending">—</span>
+      </label>
+      <label class="layer-toggle layer-toggle-sub">
+        <input type="checkbox" id="toggle-street-view-suspect" checked disabled />
+        <span class="swatch swatch-street-view-suspect"></span>
+        <span class="layer-label">Sumnjivo</span>
+        <span class="count" id="count-street-view-suspect">—</span>
+      </label>
+    </div>
     <label class="layer-toggle">
       <input type="checkbox" id="toggle-ml" checked disabled />
       <span class="swatch swatch-ml"></span>
       <span class="layer-label">ML-otkrivena (Faza 1)</span>
       <span class="count" id="count-ml">—</span>
-    </label>
-    <label class="layer-toggle">
-      <input type="checkbox" id="toggle-informal" checked disabled />
-      <span class="swatch swatch-informal"></span>
-      <span class="layer-label">Neslužbena (Faza 3)</span>
-      <span class="count" id="count-informal">—</span>
-    </label>
-    <div id="informal-breakdown" class="informal-breakdown"></div>
-    <label class="layer-toggle">
-      <input type="checkbox" id="toggle-street-view" checked disabled />
-      <span class="swatch swatch-street-view"></span>
-      <span class="layer-label">Street View (pregled)</span>
-      <span class="count" id="count-street-view">—</span>
-    </label>
-    <label class="layer-toggle layer-toggle-sub">
-      <input type="checkbox" id="toggle-street-view-suspect" checked disabled />
-      <span class="swatch swatch-street-view-suspect"></span>
-      <span class="layer-label">Street View (sumnjivo)</span>
-      <span class="count" id="count-street-view-suspect">—</span>
     </label>
     <div class="layer-group">
       <div class="layer-group-label">LLM kandidati (Faza 5)</div>
@@ -86,6 +88,13 @@
         <span class="count" id="count-llm-openai">—</span>
       </label>
     </div>
+    <label class="layer-toggle">
+      <input type="checkbox" id="toggle-informal" checked disabled />
+      <span class="swatch swatch-informal"></span>
+      <span class="layer-label">Neslužbena (Faza 3)</span>
+      <span class="count" id="count-informal">—</span>
+    </label>
+    <div id="informal-breakdown" class="informal-breakdown"></div>
 
     <h2>Boja po kapacitetu</h2>
     <div class="capacity-scale">
@@ -110,27 +119,15 @@
     </div>
 
     <div id="totals-content" class="totals-content" hidden>
-      <header class="totals-header">
-        <h2 id="totals-title">—</h2>
-      </header>
-      <div class="totals-controls">
-        <span id="totals-summary" class="totals-summary">—</span>
-        <select id="totals-sort" class="totals-sort">
-          <option value="capacity">Sortiraj: kapacitet ↓</option>
-          <option value="lots">Sortiraj: broj parkirališta ↓</option>
-          <option value="area">Sortiraj: površina ↓</option>
-          <option value="name">Sortiraj: ime A–Ž</option>
-        </select>
-      </div>
       <div class="totals-table-wrap">
         <table class="totals-table">
           <thead>
             <tr>
-              <th>Područje</th>
-              <th class="num">Parkir.</th>
-              <th class="num">Otvor.</th>
-              <th class="num">Zatv.</th>
-              <th class="num">Mjesta</th>
+              <th class="sortable" data-sort="name">Područje</th>
+              <th class="num sortable" data-sort="lots">Parkir.</th>
+              <th class="num sortable" data-sort="capacity-open">Otvor.</th>
+              <th class="num sortable" data-sort="capacity-enclosed">Zatv.</th>
+              <th class="num sortable" data-sort="capacity">Mjesta</th>
             </tr>
           </thead>
           <tbody id="totals-tbody"></tbody>

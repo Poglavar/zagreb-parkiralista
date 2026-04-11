@@ -201,7 +201,20 @@ async function main() {
       }
       console.log(`Upserted ${segmentIds.length} segments into parking.segment`);
 
+      let skippedReviewed = 0;
       for (const r of rows) {
+        // Skip if this segment+side has already been reviewed (confirmed/suspect)
+        const { rows: reviewCheck } = await client.query(`
+          SELECT 1 FROM parking.area
+          WHERE segment_id = $1 AND side = $2 AND current = true
+            AND review_status IN ('confirmed', 'suspect')
+          LIMIT 1
+        `, [r.segment_id, r.side]);
+        if (reviewCheck.length > 0) {
+          skippedReviewed += 1;
+          continue;
+        }
+
         // Mark previous versions as not current
         await client.query(`
           UPDATE parking.area SET current = false, updated_at = now()
@@ -230,7 +243,7 @@ async function main() {
       }
 
       await client.query("COMMIT");
-      console.log(`Inserted ${rows.length} parking areas into parking.area`);
+      console.log(`Inserted ${rows.length - skippedReviewed} parking areas into parking.area (${skippedReviewed} skipped — already reviewed)`);
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;

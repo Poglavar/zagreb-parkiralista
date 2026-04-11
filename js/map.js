@@ -43,13 +43,18 @@ const layers = {
 // In-memory caches keyed by URL so re-selecting an admin level is instant.
 const bordersCache = new Map();
 
-// Source-of-truth slices used for aggregation. Populated by loadOsmLayer().
+// Source-of-truth slices used for aggregation. Populated by loadOsmLayer() and loadStreetViewLayer().
 let osmFeatureCollection = null;
-// Per-feature aggregation handles. Each entry is independent of geometry type:
-//   { lon, lat, kind: 'open_air'|'enclosed', capacity, area_m2 }
-// Polygons contribute their centroid; nodes contribute their own coords.
+// Per-feature aggregation handles. Each entry:
+//   { lon, lat, kind, source, capacity, area_m2 }
 let osmHandles = null;
-let currentAggregation = null;  // result of aggregateByAdmin() most recently rendered
+let streetViewHandles = [];
+let currentAggregation = null;
+let currentSortKey = "capacity";
+let selectedAdminName = null;
+
+// Car footprints for capacity estimation (m² per spot)
+const CAR_FOOTPRINT = { parallel: 13.75, perpendicular: 6.88, diagonal: 9.73, mixed: 10, unknown: 13.75 };
 
 // ───────── Utility / formatting ─────────
 
@@ -201,6 +206,7 @@ function buildOsmHandles(fc) {
       lon,
       lat,
       kind,
+      source: "osm",
       capacity: Number(props.capacity) || 0,
       area_m2: Number(props.area_m2) || 0,
       featureIndex: i,
@@ -751,8 +757,11 @@ function sortAggregation(rows, sortKey) {
     case "lots":
       arr.sort((a, b) => b.lots - a.lots || a.name.localeCompare(b.name, "hr"));
       break;
-    case "area":
-      arr.sort((a, b) => b.area_m2 - a.area_m2 || a.name.localeCompare(b.name, "hr"));
+    case "capacity-open":
+      arr.sort((a, b) => b.capacity_open - a.capacity_open || a.name.localeCompare(b.name, "hr"));
+      break;
+    case "capacity-enclosed":
+      arr.sort((a, b) => b.capacity_enclosed - a.capacity_enclosed || a.name.localeCompare(b.name, "hr"));
       break;
     case "name":
       arr.sort((a, b) => a.name.localeCompare(b.name, "hr"));
@@ -768,14 +777,11 @@ function renderTotalsTable(rows, sortKey) {
   const tbody = document.getElementById("totals-tbody");
   const sorted = sortAggregation(rows, sortKey);
   tbody.innerHTML = sorted.map((r) => {
-    const openCell = r.capacity_open > 0
-      ? formatNumber(r.capacity_open)
-      : '<span class="muted">0</span>';
-    const enclosedCell = r.capacity_enclosed > 0
-      ? formatNumber(r.capacity_enclosed)
-      : '<span class="muted">0</span>';
+    const openCell = r.capacity_open > 0 ? formatNumber(r.capacity_open) : '<span class="muted">0</span>';
+    const enclosedCell = r.capacity_enclosed > 0 ? formatNumber(r.capacity_enclosed) : '<span class="muted">0</span>';
+    const selected = r.name === selectedAdminName ? " selected" : "";
     return `
-      <tr data-name="${escapeHtml(r.name)}">
+      <tr data-name="${escapeHtml(r.name)}" class="${selected}">
         <td>${escapeHtml(r.name)}</td>
         <td class="num">${formatNumber(r.lots)}</td>
         <td class="num">${openCell}</td>
@@ -789,28 +795,20 @@ function renderTotalsTable(rows, sortKey) {
     tr.addEventListener("click", () => {
       tbody.querySelectorAll("tr.selected").forEach((row) => row.classList.remove("selected"));
       tr.classList.add("selected");
-      const name = tr.dataset.name;
-      const row = currentAggregation.find((x) => x.name === name);
+      selectedAdminName = tr.dataset.name;
+      const row = currentAggregation.find((x) => x.name === selectedAdminName);
       if (row) selectAdminArea(row.feature);
     });
+  });
+
+  // Highlight active sort header
+  document.querySelectorAll(".totals-table th.sortable").forEach((th) => {
+    th.classList.toggle("sort-active", th.dataset.sort === sortKey);
   });
 }
 
 function showTotalsContent(level, rows) {
   document.getElementById("totals-content").hidden = false;
-  document.getElementById("totals-title").textContent = ADMIN_LEVEL_LABELS[level] || "";
-  const totals = rows.reduce(
-    (acc, r) => {
-      acc.lots += r.lots;
-      acc.capacity += r.capacity_total;
-      acc.cap_open += r.capacity_open;
-      acc.cap_enclosed += r.capacity_enclosed;
-      return acc;
-    },
-    { lots: 0, capacity: 0, cap_open: 0, cap_enclosed: 0 }
-  );
-  document.getElementById("totals-summary").textContent =
-    `${rows.length} područja · ${formatNumber(totals.lots)} parkirališta · ${formatNumber(totals.capacity)} mjesta (${formatNumber(totals.cap_open)} otv. + ${formatNumber(totals.cap_enclosed)} zatv.)`;
 }
 
 function hideTotalsContent() {
@@ -850,24 +848,24 @@ async function selectAdminLevel(value) {
     return;
   }
 
-  if (!osmHandles) {
-    setAdminStatus("OSM sloj nije učitan");
+  if (!osmHandles && !streetViewHandles.length) {
+    setAdminStatus("Nema učitanih podataka");
     return;
   }
 
   const level = Number(value);
   try {
     const adminFc = await fetchAdminBorders(level);
-    setAdminStatus(`agregiram ${formatNumber(osmHandles.length)} parkirališta…`);
+    const allHandles = [...(osmHandles || []), ...streetViewHandles];
+    setAdminStatus(`agregiram ${formatNumber(allHandles.length)} parkirališta…`);
 
     layers.admin = L.geoJSON(adminFc, { style: adminBaseStyle() }).addTo(mapRef);
 
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const rows = aggregateByAdmin(adminFc, osmHandles);
+    const rows = aggregateByAdmin(adminFc, allHandles);
     currentAggregation = rows;
 
-    const sortKey = document.getElementById("totals-sort").value;
-    renderTotalsTable(rows, sortKey);
+    renderTotalsTable(rows, currentSortKey);
     showTotalsContent(level, rows);
     setAdminStatus(`${adminFc.features.length} područja iz API-ja`);
   } catch (err) {
@@ -899,63 +897,89 @@ async function loadStreetViewLayer(map) {
   if (!fc || fc.type !== "FeatureCollection" || !Array.isArray(fc.features)) return null;
   if (fc.features.length === 0) return null;
 
-  const confirmed = fc.features.filter((f) => f.properties?.review_status !== "suspect");
-  const suspect = fc.features.filter((f) => f.properties?.review_status === "suspect");
-
-  function streetViewStyle(feature) {
-    const isSuspect = feature.properties?.review_status === "suspect";
-    return {
-      color: isSuspect ? "#b45309" : "#6d28d9",
-      weight: 2,
-      fillColor: isSuspect ? "#fbbf24" : "#8b5cf6",
-      fillOpacity: isSuspect ? 0.35 : 0.45,
-      dashArray: isSuspect ? "6 4" : null,
-    };
+  // Compute area and capacity for each feature
+  for (const f of fc.features) {
+    try {
+      const area = turf.area(f);
+      f.properties._area_m2 = area;
+      const manner = f.properties?.tags?.parking_manner || "parallel";
+      const footprint = CAR_FOOTPRINT[manner] || CAR_FOOTPRINT.parallel;
+      f.properties._capacity = Math.round(area / footprint);
+    } catch { f.properties._area_m2 = 0; f.properties._capacity = 0; }
   }
+
+  // Build aggregation handles
+  streetViewHandles = [];
+  for (const f of fc.features) {
+    const p = f.properties || {};
+    try {
+      const c = turf.centroid(f);
+      const [lon, lat] = c.geometry.coordinates;
+      streetViewHandles.push({
+        lon, lat,
+        kind: "street_view",
+        source: "street_view",
+        status: p.review_status || "pending",
+        capacity: p._capacity || 0,
+        area_m2: p._area_m2 || 0,
+      });
+    } catch {}
+  }
+
+  const byStatus = { confirmed: [], pending: [], suspect: [] };
+  for (const f of fc.features) {
+    const s = f.properties?.review_status || "pending";
+    (byStatus[s] || byStatus.pending).push(f);
+  }
+
+  const statusStyles = {
+    confirmed: { color: "#475569", fillColor: "#64748b", fillOpacity: 0.3, dashArray: null },
+    pending: { color: "#6d28d9", fillColor: "#8b5cf6", fillOpacity: 0.45, dashArray: null },
+    suspect: { color: "#b45309", fillColor: "#fbbf24", fillOpacity: 0.35, dashArray: "6 4" },
+  };
+
+  const statusLabels = { confirmed: "potvrđeno", pending: "čeka", suspect: "sumnjivo" };
 
   function streetViewPopup(feature, lyr) {
     const p = feature.properties || {};
     const tags = p.tags || {};
-    const statusLabel = p.review_status === "suspect" ? " (sumnjivo)" : "";
     const html = `
-      <strong>Street View pregled${statusLabel}</strong>
+      <strong>Street View · ${escapeHtml(statusLabels[p.review_status] || p.review_status)}</strong>
       <table class="popup-table">
         <tr><th>Segment</th><td>${escapeHtml(p.segment_id || "—")} · ${escapeHtml(p.side || "—")}</td></tr>
         <tr><th>Način</th><td>${escapeHtml(tags.parking_manner || "—")}</td></tr>
         <tr><th>Razina</th><td>${escapeHtml(tags.parking_level || "—")}</td></tr>
         <tr><th>Formalnost</th><td>${escapeHtml(tags.formality || "—")}</td></tr>
         <tr><th>Pouzdanost</th><td>${p.confidence != null ? Number(p.confidence).toFixed(2) : "—"}</td></tr>
-        <tr><th>Status</th><td>${escapeHtml(p.review_status || "pending")}</td></tr>
+        <tr><th>Površina</th><td>${formatArea(p._area_m2)}</td></tr>
+        <tr><th>Kapacitet</th><td>~${p._capacity || 0} mjesta</td></tr>
       </table>
     `;
     lyr.bindPopup(html, { maxWidth: 320 });
   }
 
-  const confirmedLayer = L.geoJSON({ type: "FeatureCollection", features: confirmed }, {
-    style: streetViewStyle,
-    onEachFeature: streetViewPopup,
-  });
-  const suspectLayer = L.geoJSON({ type: "FeatureCollection", features: suspect }, {
-    style: streetViewStyle,
-    onEachFeature: streetViewPopup,
-  });
+  for (const [status, features] of Object.entries(byStatus)) {
+    const style = statusStyles[status];
+    const layer = L.geoJSON({ type: "FeatureCollection", features }, {
+      style: () => ({ color: style.color, weight: 2, fillColor: style.fillColor, fillOpacity: style.fillOpacity, dashArray: style.dashArray }),
+      onEachFeature: streetViewPopup,
+    });
+    if (features.length > 0) layer.addTo(map);
 
-  confirmedLayer.addTo(map);
-  if (suspect.length > 0) suspectLayer.addTo(map);
+    const key = `streetView${status.charAt(0).toUpperCase() + status.slice(1)}`;
+    layers[key] = layer;
 
-  layers.streetView = confirmedLayer;
-  layers.streetViewSuspect = suspectLayer;
+    const countEl = document.getElementById(`count-street-view-${status}`);
+    const toggleEl = document.getElementById(`toggle-street-view-${status}`);
+    if (countEl) countEl.textContent = features.length;
+    if (toggleEl) toggleEl.disabled = false;
+  }
 
-  // Count excludes suspect
-  const countEl = document.getElementById("count-street-view");
-  const toggleEl = document.getElementById("toggle-street-view");
-  if (countEl) countEl.textContent = confirmed.length;
-  if (toggleEl) toggleEl.disabled = false;
+  const allCountEl = document.getElementById("count-street-view-all");
+  if (allCountEl) allCountEl.textContent = fc.features.length;
 
-  const suspectCountEl = document.getElementById("count-street-view-suspect");
-  const suspectToggleEl = document.getElementById("toggle-street-view-suspect");
-  if (suspectCountEl) suspectCountEl.textContent = suspect.length;
-  if (suspectToggleEl) suspectToggleEl.disabled = false;
+  // Update headline to include street view data
+  reaggregateTotals();
 }
 
 // ───────── Layer toggles ─────────
@@ -967,6 +991,76 @@ function wireToggle(checkboxId, layerName) {
     if (!layer) return;
     if (cb.checked) layer.addTo(mapRef);
     else mapRef.removeLayer(layer);
+    reaggregateTotals();
+  });
+}
+
+function visibleHandles() {
+  const osmOpenVisible = document.getElementById("toggle-osm-open")?.checked !== false;
+  const osmEnclosedVisible = document.getElementById("toggle-osm-enclosed")?.checked !== false;
+  const svConfirmedVisible = document.getElementById("toggle-street-view-confirmed")?.checked !== false;
+  const svPendingVisible = document.getElementById("toggle-street-view-pending")?.checked !== false;
+  const svSuspectVisible = document.getElementById("toggle-street-view-suspect")?.checked !== false;
+
+  const filtered = [];
+  if (osmHandles) {
+    for (const h of osmHandles) {
+      if (h.kind === "open_air" && !osmOpenVisible) continue;
+      if (h.kind === "enclosed" && !osmEnclosedVisible) continue;
+      filtered.push(h);
+    }
+  }
+  for (const h of streetViewHandles) {
+    if (h.status === "confirmed" && !svConfirmedVisible) continue;
+    if (h.status === "pending" && !svPendingVisible) continue;
+    if (h.status === "suspect" && !svSuspectVisible) continue;
+    filtered.push(h);
+  }
+  return filtered;
+}
+
+function updateHeadlineFromHandles(handles) {
+  const totals = { spots: 0, open: 0, enclosed: 0, lots: 0, lotsOpen: 0, lotsEnclosed: 0, area: 0 };
+  for (const h of handles) {
+    totals.spots += h.capacity;
+    totals.lots += 1;
+    totals.area += h.area_m2;
+    if (h.kind === "enclosed") { totals.enclosed += h.capacity; totals.lotsEnclosed += 1; }
+    else { totals.open += h.capacity; totals.lotsOpen += 1; }
+  }
+  document.getElementById("hs-spots").textContent = formatNumber(totals.spots);
+  document.getElementById("hs-spots-sub").textContent = `${formatNumber(totals.open)} otv. · ${formatNumber(totals.enclosed)} zatv.`;
+  document.getElementById("hs-lots").textContent = formatNumber(totals.lots);
+  document.getElementById("hs-lots-sub").textContent = `${formatNumber(totals.lotsOpen)} otv. · ${formatNumber(totals.lotsEnclosed)} zatv.`;
+  document.getElementById("hs-area").textContent = NUM_FMT_DEC.format(totals.area / 1e6);
+}
+
+function reaggregateTotals() {
+  const filtered = visibleHandles();
+  updateHeadlineFromHandles(filtered);
+
+  if (!currentAggregation) return;
+  const level = document.getElementById("admin-level")?.value;
+  if (!level || level === "city") return;
+
+  // Re-aggregate with current visible handles but keep existing sort and selection
+  const adminFc = { type: "FeatureCollection", features: currentAggregation.map((r) => r.feature) };
+  const rows = aggregateByAdmin(adminFc, filtered);
+  currentAggregation = rows;
+
+  // Update numbers in existing rows without resorting
+  const tbody = document.getElementById("totals-tbody");
+  const rowsByName = new Map(rows.map((r) => [r.name, r]));
+  tbody.querySelectorAll("tr").forEach((tr) => {
+    const r = rowsByName.get(tr.dataset.name);
+    if (!r) return;
+    const cells = tr.querySelectorAll("td");
+    if (cells.length >= 5) {
+      cells[1].textContent = formatNumber(r.lots);
+      cells[2].innerHTML = r.capacity_open > 0 ? formatNumber(r.capacity_open) : '<span class="muted">0</span>';
+      cells[3].innerHTML = r.capacity_enclosed > 0 ? formatNumber(r.capacity_enclosed) : '<span class="muted">0</span>';
+      cells[4].innerHTML = `<strong>${formatNumber(r.capacity_total)}</strong>`;
+    }
   });
 }
 
@@ -995,15 +1089,20 @@ function init() {
   wireToggle("toggle-informal", "informal");
   wireToggle("toggle-llm-anthropic", "llmAnthropic");
   wireToggle("toggle-llm-openai", "llmOpenai");
-  wireToggle("toggle-street-view", "streetView");
+  wireToggle("toggle-street-view-confirmed", "streetViewConfirmed");
+  wireToggle("toggle-street-view-pending", "streetViewPending");
   wireToggle("toggle-street-view-suspect", "streetViewSuspect");
 
   document.getElementById("admin-level").addEventListener("change", (e) => {
     selectAdminLevel(e.target.value);
   });
 
-  document.getElementById("totals-sort").addEventListener("change", (e) => {
-    if (currentAggregation) renderTotalsTable(currentAggregation, e.target.value);
+  // Sortable column headers
+  document.querySelectorAll(".totals-table th.sortable").forEach((th) => {
+    th.addEventListener("click", () => {
+      currentSortKey = th.dataset.sort;
+      if (currentAggregation) renderTotalsTable(currentAggregation, currentSortKey);
+    });
   });
 }
 
