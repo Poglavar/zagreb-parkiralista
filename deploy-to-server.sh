@@ -46,6 +46,7 @@ ${SSH_CMD} "
     cp ${REPO_PATH}/index.html ${WEB_ROOT}/index.html
     cp ${REPO_PATH}/index.css  ${WEB_ROOT}/index.css
     cp ${REPO_PATH}/js/map.js  ${WEB_ROOT}/js/map.js
+    cp ${REPO_PATH}/favicon.svg ${WEB_ROOT}/favicon.svg
 
     cp ${REPO_PATH}/data/osm/parking_zagreb.geojson         ${WEB_ROOT}/data/osm/parking_zagreb.geojson
     cp ${REPO_PATH}/data/final/informal_parking.geojson     ${WEB_ROOT}/data/final/informal_parking.geojson
