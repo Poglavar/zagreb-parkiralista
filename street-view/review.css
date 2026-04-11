@@ -147,9 +147,25 @@ button:hover,
 .layout-two-col {
   display: grid;
   grid-template-columns: 1fr 340px;
+  grid-template-rows: auto 1fr;
   gap: 1rem;
   padding: 1rem 1.5rem 1.5rem;
   align-items: start;
+}
+
+.col-map {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.col-controls {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.col-images {
+  grid-column: 1;
+  grid-row: 2;
 }
 
 .card {
@@ -769,8 +785,13 @@ input[type="checkbox"] {
   }
 
   .layout-two-col {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
   }
+
+  .col-map { order: 1; width: 100%; }
+  .col-controls { order: 2; width: 100%; }
+  .col-images { order: 3; width: 100%; }
 
   .controls-card {
     position: static;
