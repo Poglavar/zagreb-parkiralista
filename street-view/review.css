@@ -761,6 +761,21 @@ button:hover,
   justify-content: flex-end;
 }
 
+.modal-body-text {
+  color: var(--ink-muted, #6b7280);
+  font-size: 0.9rem;
+  margin: -0.25rem 0 1.25rem;
+}
+
+.btn-danger {
+  background: #dc2626;
+  color: #fff;
+  border-color: #b91c1c;
+}
+.btn-danger:hover {
+  background: #b91c1c;
+}
+
 
 fieldset {
   margin: 0;

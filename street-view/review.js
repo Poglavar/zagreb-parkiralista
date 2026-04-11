@@ -928,7 +928,7 @@ function renderAllPolygons() {
           // One click: select segment + enter edit mode for the manual polygon
           const clickRing = ring;
           const clickManner = seg.sides.manual?.tags?.parking_manner || "perpendicular";
-          osmP.on("click", () => { selectSegment(segIndex); enterManualAddMode(clickRing, clickManner); });
+          osmP.on("click", async () => { if (await selectSegment(segIndex)) enterManualAddMode(clickRing, clickManner); });
         } else {
           osmP.on("click", () => selectSegment(segIndex));
         }
@@ -958,13 +958,41 @@ function disableEditMode() {
   }
 }
 
-function selectSegment(index) {
+function hasUnsavedChanges() {
+  return state.formPreview !== null || state.manualAddMode;
+}
+
+// Returns a promise that resolves true if safe to proceed (no changes, or user confirmed).
+function confirmDiscardChanges() {
+  if (!hasUnsavedChanges()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const modal = document.getElementById("discardChangesModal");
+    const cancelBtn = document.getElementById("discardModalCancel");
+    const proceedBtn = document.getElementById("discardModalProceed");
+    function close(result) {
+      modal.hidden = true;
+      cancelBtn.removeEventListener("click", onCancel);
+      proceedBtn.removeEventListener("click", onProceed);
+      resolve(result);
+    }
+    function onCancel() { close(false); }
+    function onProceed() { close(true); }
+    cancelBtn.addEventListener("click", onCancel);
+    proceedBtn.addEventListener("click", onProceed);
+    modal.hidden = false;
+  });
+}
+
+async function selectSegment(index) {
+  // Only warn when switching to a different segment — clicking the already-selected one is safe.
+  if (index !== state.index && !await confirmDiscardChanges()) return false;
   if (state.manualAddMode) exitManualAddMode();
   state.index = index;
   state.formPreview = null;
   clearUndo();
   disableEditMode();
   render();
+  return true;
 }
 
 // Draw the selected segment's editable polygons, centerline, and viewpoints on the selection layer.
@@ -1220,7 +1248,7 @@ function stepVisible(dir) {
   const visible = visibleSegmentIndexes();
   const pos = visible.indexOf(state.index);
   const next = pos + dir;
-  if (next >= 0 && next < visible.length) { state.index = visible[next]; state.formPreview = null; clearUndo(); render(); }
+  if (next >= 0 && next < visible.length) selectSegment(visible[next]);
 }
 
 // --- Undo support ---
