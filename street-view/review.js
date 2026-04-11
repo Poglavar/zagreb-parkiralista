@@ -969,7 +969,10 @@ async function init() {
     if (tags.parking_level) parts.push(`<strong>Razina:</strong> ${tags.parking_level}`);
     if (tags.formality) parts.push(`<strong>Formalnost:</strong> ${tags.formality}`);
     if (tags.overall_notes) parts.push(`<strong>Bilješke:</strong> ${tags.overall_notes}`);
-    if (sideData?.provider) parts.push(`<strong>Model:</strong> ${sideData.provider} / ${sideData.model || "?"}`);
+    if (sideData?.provider) {
+      const modelLabel = sideData.provider === "openai" ? "Model 2" : sideData.provider === "anthropic" ? "Model 1" : "AI";
+      parts.push(`<strong>Model:</strong> ${modelLabel}`);
+    }
 
     aiReasonContent.innerHTML = parts.length > 0
       ? `<ul>${parts.map((p) => `<li>${p}</li>`).join("")}</ul>`

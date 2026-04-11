@@ -546,7 +546,7 @@ function llmStyleFor(feature) {
 
 function llmPopupHtml(feature) {
   const p = feature.properties || {};
-  const providerLabel = p.provider === "openai" ? "GPT (OpenAI)" : "Claude (Anthropic)";
+  const providerLabel = p.provider === "openai" ? "Model 2" : "Model 1";
   const kindLabel = {
     street_parking: "ulično parkiranje",
     lot: "parkiralište",
@@ -943,6 +943,7 @@ async function loadStreetViewLayer(map) {
   function streetViewPopup(feature, lyr) {
     const p = feature.properties || {};
     const tags = p.tags || {};
+    const reviewUrl = `unos/review.html`;
     const html = `
       <strong>Street View · ${escapeHtml(statusLabels[p.review_status] || p.review_status)}</strong>
       <table class="popup-table">
@@ -954,6 +955,7 @@ async function loadStreetViewLayer(map) {
         <tr><th>Površina</th><td>${formatArea(p._area_m2)}</td></tr>
         <tr><th>Kapacitet</th><td>~${p._capacity || 0} mjesta</td></tr>
       </table>
+      <a href="${reviewUrl}" class="popup-review-link" target="_blank" rel="noopener">Pregledaj</a>
     `;
     lyr.bindPopup(html, { maxWidth: 320 });
   }
