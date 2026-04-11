@@ -7,9 +7,10 @@
 # from cadastre-data — this script does not touch the API.
 set -e
 
-# Guard: pulling from git means uncommitted changes won't ship
-if ! git diff --quiet HEAD 2>/dev/null || [ -n "$(git ls-files --others --exclude-standard)" ]; then
-    echo "ERROR: You have uncommitted changes. These will NOT be deployed (deploy pulls from git)."
+# Guard: only block on tracked file changes — untracked files don't affect
+# the server since it pulls from git.
+if ! git diff --quiet HEAD 2>/dev/null; then
+    echo "ERROR: You have uncommitted changes to tracked files. These will NOT be deployed (deploy pulls from git)."
     echo "Commit and push first, then deploy."
     git status --short
     exit 1
@@ -17,8 +18,8 @@ fi
 
 SERVER_USER="${DEPLOY_USER:-root}"
 SERVER_HOST="${DEPLOY_HOST:-67.205.138.129}"
-SSH_KEY="${DEPLOY_SSH_KEY:-~/.ssh/id_ed25519}"
-REPO_PATH="${DEPLOY_PATH:-~/code/zagreb-parkiralista}"
+SSH_KEY="${DEPLOY_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+REPO_PATH="${DEPLOY_PATH:-/root/code/zagreb-parkiralista}"
 WEB_ROOT="${DEPLOY_WEB_ROOT:-/var/www/zagreb.lol/parkiralista}"
 GIT_REMOTE="${DEPLOY_GIT_REMOTE:-https://github.com/Poglavar/zagreb-parkiralista.git}"
 
