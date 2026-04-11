@@ -67,7 +67,6 @@ ${SSH_CMD} "
     cp ${REPO_PATH}/street-view/review.js   ${WEB_ROOT}/unos/review.js
 
     cp ${REPO_PATH}/street-view/scripts/lib/*.mjs ${WEB_ROOT}/unos/scripts/lib/
-    cp ${REPO_PATH}/street-view/data/osm/parking_zagreb.geojson ${WEB_ROOT}/unos/data/osm/parking_zagreb.geojson
 
     cp ${REPO_PATH}/street-view/out/review-bundle-catalog.json ${WEB_ROOT}/unos/out/review-bundle-catalog.json || true
     cp ${REPO_PATH}/street-view/out/*-review-bundle.json       ${WEB_ROOT}/unos/out/ || true
@@ -75,7 +74,11 @@ ${SSH_CMD} "
     cp -r ${REPO_PATH}/street-view/out/images/.                ${WEB_ROOT}/unos/out/images/ 2>/dev/null || true
 "
 
-# 4. Cache-bust version params in HTML files with a deploy timestamp
+# 4. Rsync gitignored data files (not in git, must be pushed from local)
+echo "Syncing street-view OSM data…"
+rsync -a street-view/data/osm/parking_zagreb.geojson ${SERVER_USER}@${SERVER_HOST}:${WEB_ROOT}/unos/data/osm/parking_zagreb.geojson
+
+# 5. Cache-bust version params in HTML files with a deploy timestamp
 CACHE_TS=$(date +%s)
 echo "Cache-busting with timestamp ${CACHE_TS}…"
 ${SSH_CMD} "
