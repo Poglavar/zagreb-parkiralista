@@ -46,3 +46,4 @@ street-view/out/
 # Cache
 .cache/
 *.tif.aux.xml
+street-view/data/osm
