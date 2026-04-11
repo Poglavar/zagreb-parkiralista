@@ -274,21 +274,42 @@ Self-contained Node.js sub-project u `street-view/` direktoriju. Implementira se
 ```sh
 cd street-view
 npm install
-# Add to street-view/.env (gitignored):
+# API ključevi idu u root .env (ne u street-view/.env):
 #   GOOGLE_MAPS_API_KEY=...
 #   OPENAI_API_KEY=...
+```
 
-# Quick offline demo (mock images + mock AI, no API calls)
+**Pokretanje za novo područje** — `process-area.mjs` je orchestrator koji chain-a sve korake:
+
+```sh
+set -a && source ../.env && set +a
+
+# Pokreni cijeli pipeline za jedno područje (npr. "Trnje")
+# Svaki korak koji ima gotov output se preskače (idempotentno).
+node scripts/process-area.mjs --area "Trnje"
+
+# Ili samo jedan korak:
+node scripts/process-area.mjs --area "Trnje" --step import   # samo download batch rezultata
+node scripts/process-area.mjs --area "Trnje" --step ingest --write  # upis u bazu
+
+# Provjera statusa batcheva:
+npm run batch:status
+```
+
+Koraci koje orchestrator izvodi redom (svaki se skip-a ako output postoji):
+1. `selection` — generira segment selekciju iz zagreb-road-widths podataka
+2. `candidates` — priprema capture stations + headings
+3. `metadata` — preflight (besplatan Google API poziv)
+4. `images` — skidanje slika ($7/1000, prvih 10k/mj besplatno)
+5. `batch-jsonl` — generira OpenAI batch JSONL
+6. `submit` — šalje batch (chunked, `--max-chunks N` za kontrolu troškova)
+7. `import` — skida gotove batch rezultate i parsira ih
+8. `ingest` — upisuje u PostGIS (dry-run po default-u, `--write` za produkciju)
+
+**Quick offline demo** (bez API poziva):
+```sh
 npm run mock:run
 npm run serve   # http://localhost:8015/review.html
-
-# Real run
-npm run prepare:demo
-npm run fetch:metadata
-npm run fetch:images
-npm run analyze:openai
-npm run build:polygons
-npm run build:bundle
 ```
 
 **Cost model** (iz street-view/README.md):
@@ -327,6 +348,7 @@ Dodatne komponente:
 | **DGU DOF LiDAR 2022/23** | 0,25 m | `https://geoportal.dgu.hr/services/inspire/orthophoto_lidar_2022_2023/wms` | Sekundarni; LiDAR intenzitet odvaja asfalt/travu/krov bolje od RGB |
 | **DGU DOF5 2023/24** | 0,5 m | `https://geoportal.dgu.hr/services/inspire/orthophoto_2023_2024/wms` | Fallback / nacionalna konzistentnost |
 | **DGU DOF 1:1000 (potres)** | ~0,10 m | Restricted; pristup kroz Grad Zagreb | Phase 3 (neslužbena parkirališta) |
+| **Zagreb 2018 TMS** (OSM-HR community) | ~0,10 m (z20) | `https://tms.osm-hr.org/zagreb-2018/{z}/{x}/{y}.png` (anonimno, besplatno) | Alternativni izvor — oštrija slika za neke namjene. TMS tile-ovi se stitchaju 4×4 i reprojektiraju u EPSG:3765 skriptom `pipeline/01b_fetch_tms.py`. |
 | **Google Maps imagery** | ~0,15 m | API key | Phase 3 alternativni izvor ako gradski ne stigne |
 | **Korisnički-osigurani izvor** | TBD | Manual | Faza 3 fallback |
 
@@ -352,6 +374,7 @@ zagreb-parkiralista/
 │   ├── requirements-ml.txt # Phase 1+ heavy deps (torch, transformers, samgeo)
 │   ├── 00_fetch_osm.py            # Faza 0 — OSM parking baseline (nodes + ways + rels)
 │   ├── 01_fetch_tiles.py          # Faza 1.1 — WMS tile fetcher (CDOF/DOF5)
+│   ├── 01b_fetch_tms.py           # Alt tile source — TMS fetcher (zagreb-2018, stitch 4×4 → EPSG:3765)
 │   ├── 02_segment.py              # Faza 1.2 — SAM 3 / LangSAM segmentacija
 │   ├── 03_vectorize.py            # Faza 1.3 — mask → polygon
 │   ├── 04_diff_osm.py             # Faza 1.4 — set-difference vs OSM
@@ -363,6 +386,12 @@ zagreb-parkiralista/
 │   ├── 22_fetch_highways.py       # Faza 5 prep — OSM highway network
 │   ├── 30_render_composite.py     # Faza 5.1 — stitch tiles + overlay roads/parking/cars
 │   └── 31_llm_propose.py          # Faza 5.2 — Claude / GPT vision API → polygon proposals
+│
+├── yolo-street-view/        # YOLO detekcija na street-view slikama + viewer za inspekciju
+│   ├── analyze.py          # YOLO na svim street-view slikama → per-image JSON
+│   ├── viewer.html/css/js  # preglednik s bbox overlayima, side-of-street analizom, parking score-om
+│   ├── images → ../street-view/out/images  # symlink
+│   └── out/yolo-analysis.json              # output (6 MB, 2351 slika, 17530 vozila)
 │
 ├── street-view/             # Faza 6 — self-contained Node.js street-view POC
 │   ├── README.md           # detalji + setup + cost model
@@ -379,15 +408,16 @@ zagreb-parkiralista/
 │   │   ├── analyze-openai.mjs           # GPT-5.4 vision classification
 │   │   ├── build-parking-areas.mjs      # AI output → curb polygons
 │   │   ├── build-review-bundle.mjs
+│   │   ├── submit-openai-batch.mjs     # chunked batch submission
+│   │   ├── import-openai-batch.mjs     # download + parse batch results
+│   │   ├── process-area.mjs           # ORCHESTRATOR — chains all steps for one area
+│   │   ├── ingest-to-db.mjs           # write results to PostGIS
 │   │   └── mock-run.mjs                 # offline demo path
 │   ├── data/               # input segments
 │   ├── out/                # generated images + AI output (gitignored)
 │   └── test/               # unit tests for lib/
 │
 └── data/
-    ├── osm/
-    │   ├── parking_zagreb.geojson   # Faza 0 output
-    │   └── landuse_zagreb.geojson   # Faza 3 prep output
     ├── osm/
     │   ├── parking_zagreb.geojson    # Faza 0 output (committed, ~3 MB)
     │   ├── landuse_zagreb.geojson    # Faza 3 prep output (gitignored, ~27 MB, regen via 21_)

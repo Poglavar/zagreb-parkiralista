@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="hr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>YOLO Street View — Vehicle Detection Viewer</title>
+  <link rel="stylesheet" href="viewer.css" />
+</head>
+<body>
+  <header id="topbar">
+    <h1>YOLO Street View</h1>
+    <div class="controls">
+      <button id="btn-prev" type="button">← Prev</button>
+      <span id="counter">0 / 0</span>
+      <button id="btn-next" type="button">Next →</button>
+    </div>
+    <div class="controls">
+      <label>Sort:
+        <select id="sort-select">
+          <option value="parking_score_desc">Parking score ↓</option>
+          <option value="car_count_desc">Car count ↓</option>
+          <option value="car_count_asc">Car count ↑</option>
+          <option value="filename">Filename</option>
+        </select>
+      </label>
+      <label>Filter:
+        <select id="filter-select">
+          <option value="all">All images</option>
+          <option value="likely_parking">Likely parking</option>
+          <option value="possible_parking">Possible parking</option>
+          <option value="no_clear_signal">No clear signal</option>
+          <option value="no_vehicles">No vehicles</option>
+          <option value="has_vehicles">Has vehicles</option>
+        </select>
+      </label>
+      <span id="filter-count" class="filter-count"></span>
+    </div>
+  </header>
+
+  <main id="main">
+    <section id="image-section">
+      <div id="image-container">
+        <img id="street-img" alt="Street view image" />
+        <div id="center-line"></div>
+        <div id="bbox-overlay"></div>
+        <div id="side-labels">
+          <span class="side-label side-left" id="label-left">← L: 0</span>
+          <span class="side-label side-right" id="label-right">R: 0 →</span>
+        </div>
+      </div>
+      <div id="image-meta" class="meta-line"></div>
+    </section>
+
+    <section id="analysis-section">
+      <div class="analysis-card" id="card-summary">
+        <h2>Summary</h2>
+        <div class="stat-grid" id="stat-grid"></div>
+      </div>
+
+      <div class="analysis-card" id="card-assessment">
+        <h2>Parking Assessment</h2>
+        <div id="assessment-detail"></div>
+      </div>
+
+      <div class="analysis-card" id="card-detections">
+        <h2>Detections <span id="detection-count" class="badge">0</span></h2>
+        <table class="det-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Class</th>
+              <th>Conf</th>
+              <th>Side</th>
+              <th>Size</th>
+              <th>Aspect</th>
+            </tr>
+          </thead>
+          <tbody id="det-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="loading">Loading yolo-analysis.json…</div>
+
+  <script src="viewer.js"></script>
+</body>
+</html>

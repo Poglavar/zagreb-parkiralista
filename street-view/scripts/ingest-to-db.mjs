@@ -173,8 +173,11 @@ async function main() {
       // Upsert source segments
       const segmentIds = [...new Set(rows.map((r) => r.segment_id))];
       for (const segId of segmentIds) {
-        // Strip suffix to look up source segment data
-        const sourceId = args.segmentSuffix ? segId.replace(new RegExp(`${args.segmentSuffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), "") : segId;
+        // Strip station suffix (-s1, -s2, ...) and any custom --segment-suffix
+        // to look up the source segment in the candidates map (which is keyed
+        // by the base segment_id, e.g. "10872" not "10872-s1").
+        let sourceId = segId.replace(/-s\d+$/, "");
+        if (args.segmentSuffix) sourceId = sourceId.replace(new RegExp(`${args.segmentSuffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), "");
         const seg = segmentById.get(sourceId) || segmentById.get(segId);
         if (!seg) continue;
         const captures = (seg.captures || []).map((c) => ({

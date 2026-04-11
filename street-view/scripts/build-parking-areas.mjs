@@ -27,11 +27,33 @@ function parseArgs(argv) {
   return args;
 }
 
+// Normalise an assessment that may be in one of two formats:
+// 1. Flat: { decision, segment_left, segment_right, ... }
+// 2. Wrapped: { stations: [{ decision, segment_left, segment_right, ... }] }
+// Returns the flat form, or null if neither shape is found.
+function normaliseAssessment(raw) {
+  if (!raw) return null;
+  // Already flat (has segment_left at top level)?
+  if (raw.segment_left || raw.segment_right) return raw;
+  // Wrapped in stations array (newer prompt format)?
+  if (Array.isArray(raw.stations) && raw.stations.length > 0) {
+    const station = raw.stations[0];
+    return {
+      decision: station.decision,
+      confidence: station.confidence,
+      overall_notes: raw.overall_notes,
+      segment_left: station.segment_left,
+      segment_right: station.segment_right
+    };
+  }
+  return null;
+}
+
 function effectiveAssessment(segmentId, analysisMap, overrideMap) {
   const override = overrideMap.get(segmentId);
   if (override?.effective_assessment) {
     return {
-      assessment: override.effective_assessment,
+      assessment: normaliseAssessment(override.effective_assessment) || override.effective_assessment,
       review_status: override.review_status || "override",
       source: "human_review"
     };
@@ -39,11 +61,14 @@ function effectiveAssessment(segmentId, analysisMap, overrideMap) {
 
   const analysis = analysisMap.get(segmentId);
   if (analysis?.assessment) {
-    return {
-      assessment: analysis.assessment,
-      review_status: override?.review_status || "unreviewed",
-      source: "openai"
-    };
+    const norm = normaliseAssessment(analysis.assessment);
+    if (norm) {
+      return {
+        assessment: norm,
+        review_status: override?.review_status || "unreviewed",
+        source: "openai"
+      };
+    }
   }
 
   return null;
@@ -108,6 +133,7 @@ export async function buildParkingAreas({ candidates, analyses, overrides, out }
           }
         });
       }
+    }
   }
 
   await writeJson(out, {

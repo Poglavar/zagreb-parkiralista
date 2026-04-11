@@ -60,6 +60,37 @@ Izvori:
 Output: `data/tiles/<source>/tile_<col>_<row>.tif`. Tile-ovi su poravnati na
 globalnu mrežu u EPSG:3765 tako da se mogu reciklirati kroz preklapajuće runs.
 
+### Step 1b: Alternativni izvor — TMS tile-ovi (Zagreb 2018 ortofoto)
+
+```sh
+# Mali test (4 output tile-a)
+python 01b_fetch_tms.py --bbox 15.975,45.812,15.980,45.815 --zoom 20 --max-tiles 4
+
+# Centralni Zagreb (~2350 tile-ova, ~95 min, ~1 GB na disku)
+python 01b_fetch_tms.py --bbox 15.94,45.79,16.02,45.83 --zoom 20
+
+# Zoom 19 za brži download (manji GSD ali manje tile-ova)
+python 01b_fetch_tms.py --bbox 15.94,45.79,16.02,45.83 --zoom 19
+```
+
+Alternativni tile fetcher koji skida s TMS endpoint-a (community orthophoto
+`https://tms.osm-hr.org/zagreb-2018/{z}/{x}/{y}.png`), stitcha 4×4 TMS tile-ova
+(256×256 px svaki) u jednu 1024×1024 sliku, i reprojektira u EPSG:3765 GeoTIFF
+— kompatibilno s ostatkom pipeline-a bez ikakvih izmjena downstream skripti.
+
+| Zoom | GSD | Veličina auta | Output tile | Vrijeme za centar ZG |
+|---|---|---|---|---|
+| 18 | 0,42 m/px | 10×5 px | ~107 m, ~600 tile-ova | ~15 min |
+| 19 | 0,21 m/px | 19×10 px | ~53 m, ~600 tile-ova | ~25 min |
+| 20 | 0,10 m/px | 38×19 px | ~107 m, ~2350 tile-ova | ~95 min |
+
+Output: `data/tiles/<source-name>/tile_<col>_<row>.tif` — isti format kao
+`01_fetch_tiles.py`, pa `11_detect_vehicles.py` i `30_render_composite.py`
+rade bez promjena.
+
+**Napomena**: TMS server je community-run volonterski servis (osm-hr.org).
+Default throttle je 150 ms — nemoj ga preopteretiti.
+
 ### Step 2: SAM 3 segmentacija (čeka HF gating)
 
 ```sh

@@ -63,14 +63,76 @@ street-view/
 │   ├── fetch-street-view-metadata.mjs
 │   ├── fetch-street-view-images.mjs
 │   ├── analyze-openai.mjs
+│   ├── submit-openai-batch.mjs     # chunk + submit to OpenAI Batch API
+│   ├── import-openai-batch.mjs     # download + parse completed batch results
 │   ├── build-parking-areas.mjs
 │   ├── build-review-bundle.mjs
+│   ├── process-area.mjs            # ORCHESTRATOR — chains all steps for one city area
+│   ├── ingest-to-db.mjs            # write results to PostGIS
 │   └── mock-run.mjs                # offline demo path with placeholder images + mock AI
 ├── review.html
 ├── review.css
 ├── review.js
 └── test/
 ```
+
+## Processing a new area (recommended workflow)
+
+`process-area.mjs` is the orchestrator that chains all steps for one city area.
+Each step checks if its output already exists and skips if so (fully idempotent).
+
+```sh
+cd street-view
+set -a && source ../.env && set +a    # load API keys from root .env
+
+# Full pipeline for an area — runs all 8 steps, skips anything already done:
+node scripts/process-area.mjs --area "Trnje"
+
+# Run just one step:
+node scripts/process-area.mjs --area "Trnje" --step import
+
+# Submit with cost control (max 2 batch chunks of 50 at a time):
+node scripts/process-area.mjs --area "Trnje" --step submit --max-chunks 2
+
+# Ingest to database (dry-run by default, --write to actually insert):
+node scripts/process-area.mjs --area "Trnje" --step ingest --write
+
+# Check batch status without downloading:
+npm run batch:status
+```
+
+Steps run in order: `selection → candidates → metadata → images → batch-jsonl → submit → import → ingest`.
+
+### Batch API workflow (individual scripts)
+
+If you prefer running steps individually:
+
+```sh
+# Generate batch JSONL (no API call):
+node scripts/analyze-openai.mjs --batch-jsonl out/my-batch.jsonl
+
+# Submit to OpenAI Batch API (chunked, tracks progress):
+node scripts/submit-openai-batch.mjs --jsonl out/my-batch.jsonl --chunk-size 50
+
+# Check status / download results:
+node scripts/import-openai-batch.mjs --tracker out/openai-batch-status.json --status
+node scripts/import-openai-batch.mjs --tracker out/openai-batch-status.json --out out/openai-analyses.json
+
+# Build parking polygons + review bundle:
+npm run build:polygons
+npm run build:bundle
+```
+
+### API keys
+
+All API keys are read from the **root** `.env` file (`../.env` from street-view/):
+
+```
+GOOGLE_MAPS_API_KEY=...
+OPENAI_API_KEY=...
+```
+
+Load them before running scripts: `set -a && source ../.env && set +a`
 
 ## Quick Start
 
@@ -156,6 +218,23 @@ The review UI is intentionally static.
 - Those overrides can then be fed back into `build-parking-areas.mjs` with `--overrides`.
 
 This keeps the POC file-based while still proving the human-review loop.
+
+## Notes
+
+### Assessment format variants
+
+`build-parking-areas.mjs` handles two assessment formats via `normaliseAssessment()`:
+
+1. **Flat** (earlier prompts): `{ decision, segment_left, segment_right, ... }`
+2. **Stations-wrapped** (newer prompts): `{ stations: [{ decision, segment_left, segment_right }], overall_notes }`
+
+Both are normalised to the flat form before polygon generation. If you change the OpenAI prompt and get a new format, add a case to `normaliseAssessment()` in `build-parking-areas.mjs`.
+
+### YOLO vehicle detection on street-view images
+
+An independent YOLO pipeline at `yolo-street-view/` runs local vehicle detection on the same street-view images. It produces per-image car counts, side-of-street classification (left/right/center), and derived parking signals. See `yolo-street-view/analyze.py` and the viewer at `yolo-street-view/viewer.html`.
+
+This is complementary to the GPT assessment — YOLO gives quantitative car-count evidence while GPT gives qualitative scene understanding.
 
 ## Current Limits
 
