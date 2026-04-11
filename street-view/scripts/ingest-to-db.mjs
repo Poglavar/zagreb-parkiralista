@@ -2,6 +2,7 @@
 import pg from "pg";
 import { pathToFileURL } from "url";
 import { buildParkingSidePolygons } from "./lib/parking.mjs";
+import { splitPolylineEqual } from "./lib/geo.mjs";
 import { fileExists, readJson, resolveFrom } from "./lib/io.mjs";
 
 function parseArgs(argv) {
@@ -95,40 +96,56 @@ async function main() {
     const assessment = result.assessment;
     if (!assessment) continue;
 
-    for (const [sideKey, side] of [["segment_left", "left"], ["segment_right", "right"]]) {
-      const sideAssessment = assessment[sideKey];
-      if (!sideAssessment?.parking_present) continue;
+    // Support both per-station (new) and single-assessment (old) formats
+    const stationAssessments = assessment.stations || [assessment];
+    const stationCount = stationAssessments.length;
+    const subSegments = stationCount > 1
+      ? splitPolylineEqual(segment.geometry.coordinates, stationCount)
+      : [segment.geometry.coordinates];
 
-      const rings = buildParkingSidePolygons(segment.geometry.coordinates, {
-        side,
-        roadWidthM: segment.width_m,
-        parkingLevel: sideAssessment.parking_level,
-        parkingManner: sideAssessment.parking_manner
-      });
+    for (let si = 0; si < stationAssessments.length; si += 1) {
+      const stationAssessment = stationAssessments[si];
+      const subCoords = subSegments[si] || segment.geometry.coordinates;
+      const stationSuffix = stationCount > 1 ? `-s${si + 1}` : "";
 
-      for (const ring of rings) {
-        const geom = JSON.stringify({ type: "Polygon", coordinates: [ring] });
-        const tags = {
-          parking_manner: sideAssessment.parking_manner,
-          parking_level: sideAssessment.parking_level,
-          formality: sideAssessment.formality,
-          label: segment.label,
-          decision: assessment.decision,
-          overall_notes: assessment.overall_notes
-        };
+      for (const [sideKey, side] of [["segment_left", "left"], ["segment_right", "right"]]) {
+        const sideAssessment = stationAssessment[sideKey];
+        if (!sideAssessment?.parking_present) continue;
 
-        rows.push({
-          segment_id: segmentId,
+        const rings = buildParkingSidePolygons(subCoords, {
           side,
-          geom,
-          tags: JSON.stringify(tags),
-          confidence: sideAssessment.confidence,
-          provider: args.provider,
-          model: resolvedModel,
-          batch_id: args.batchId,
-          cost_usd: result.cost_usd || null
+          roadWidthM: segment.width_m,
+          parkingLevel: sideAssessment.parking_level,
+          parkingManner: sideAssessment.parking_manner,
+          endSetbackM: 3
         });
-        insertCount += 1;
+
+        for (const ring of rings) {
+          const geom = JSON.stringify({ type: "Polygon", coordinates: [ring] });
+          const tags = {
+            parking_manner: sideAssessment.parking_manner,
+            parking_level: sideAssessment.parking_level,
+            formality: sideAssessment.formality,
+            label: segment.label,
+            station_index: si,
+            station_count: stationCount,
+            decision: stationAssessment.decision,
+            overall_notes: assessment.overall_notes
+          };
+
+          rows.push({
+            segment_id: `${segmentId}${stationSuffix}`,
+            side,
+            geom,
+            tags: JSON.stringify(tags),
+            confidence: sideAssessment.confidence,
+            provider: args.provider,
+            model: resolvedModel,
+            batch_id: args.batchId,
+            cost_usd: result.cost_usd || null
+          });
+          insertCount += 1;
+        }
       }
     }
   }

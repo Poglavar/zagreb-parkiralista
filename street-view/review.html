@@ -24,37 +24,13 @@
           <option value="suspect">sumnjivo</option>
         </select>
       </label>
-      <input id="segmentSearchField" type="search" placeholder="Pretraži segment..." class="topbar-search" />
     </header>
 
     <main class="layout">
-      <aside class="segment-rail">
-        <div class="card rail-card">
-          <h2>Segmenti</h2>
-          <p id="segmentCount" class="muted">Učitavanje...</p>
-          <div id="segmentList" class="segment-list"></div>
-        </div>
-      </aside>
-
       <section class="viewer-column">
         <div class="card">
-          <div class="card-header">
-            <div>
-              <p class="eyebrow">Trenutni segment</p>
-              <h2 id="segmentTitle">Učitavanje...</h2>
-            </div>
-          </div>
+          <p class="eyebrow" id="segmentTitle">Učitavanje...</p>
           <div id="segmentMeta" class="meta-grid"></div>
-          <div id="captureGrid" class="capture-grid"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <p class="eyebrow">Karta segmenta</p>
-              <h2>Karta</h2>
-            </div>
-          </div>
           <div class="dual-map-shell">
             <div id="diagramShell" class="diagram-shell">
               <div id="segmentMap" class="segment-map" aria-label="OSM karta segmenta"></div>
@@ -66,7 +42,7 @@
 
           <form id="overrideForm" class="assessment-form">
             <div class="side-grid">
-              <fieldset class="side-fieldset">
+              <fieldset class="side-fieldset side-fieldset-left">
                 <legend>Lijeva strana</legend>
                 <div class="side-summary-row">
                   <label class="check-label"><input id="leftPresentField" type="checkbox" /> Parkiranje</label>
@@ -95,7 +71,7 @@
                 </div>
                 <input id="leftConfidenceField" type="hidden" />
               </fieldset>
-              <fieldset class="side-fieldset">
+              <fieldset class="side-fieldset side-fieldset-right">
                 <legend>Desna strana</legend>
                 <div class="side-summary-row">
                   <label class="check-label"><input id="rightPresentField" type="checkbox" /> Parkiranje</label>
@@ -131,16 +107,28 @@
           </form>
 
           <div class="action-bar">
+            <button id="prevButton" type="button">&lsaquo; Prethodni</button>
+            <button id="nextButton" type="button">Sljedeći &rsaquo;</button>
             <button id="acceptAiButton" type="button" class="btn-confirm">Potvrdi</button>
             <button id="suspectButton" type="button">Sumnjivo</button>
-            <span class="action-spacer"></span>
-            <button id="prevButton" type="button">Prethodni</button>
-            <button id="nextButton" type="button">Sljedeći</button>
           </div>
           <div id="osmSubmitStatus" class="summary-block muted"></div>
+          <div id="captureGrid" class="capture-grid"></div>
         </div>
       </section>
     </main>
+
+    <div id="suspectModal" class="modal-overlay" hidden>
+      <div class="modal-card">
+        <p>Sumnjive segmente treba dodatno pregledati.</p>
+        <label for="suspectReasonField">Razlog sumnje (opcionalno)</label>
+        <input id="suspectReasonField" type="text" placeholder="npr. višestruke tipologije" />
+        <div class="modal-actions">
+          <button id="suspectModalCancel" type="button">Odustani</button>
+          <button id="suspectModalConfirm" type="button" class="btn-suspect-active">Označi sumnjivim</button>
+        </div>
+      </div>
+    </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script type="module" src="./review.js"></script>

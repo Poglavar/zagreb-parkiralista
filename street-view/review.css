@@ -133,7 +133,7 @@ button:hover,
 
 .layout {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 1rem;
   padding: 1rem 1.5rem 1.5rem;
 }
@@ -323,6 +323,11 @@ button:hover,
   color: var(--muted);
 }
 
+.capture-card.capture-highlight {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+}
+
 .capture-media {
   position: relative;
 }
@@ -367,7 +372,6 @@ button:hover,
 
 .diagram-shell {
   position: relative;
-  min-height: 340px;
   border-radius: 18px;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -375,8 +379,8 @@ button:hover,
 }
 
 .segment-map {
-  min-height: 340px;
   width: 100%;
+  aspect-ratio: 1 / 1;
 }
 
 .diagram {
@@ -588,6 +592,57 @@ button:hover,
   background: #fde68a;
 }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(18, 32, 51, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-overlay[hidden] {
+  display: none;
+}
+
+.modal-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 1.5rem;
+  box-shadow: 0 20px 60px rgba(18, 32, 51, 0.2);
+  max-width: 400px;
+  width: 90%;
+}
+
+.modal-card p {
+  margin: 0 0 1rem;
+}
+
+.modal-card label {
+  margin-bottom: 1rem;
+}
+
+.modal-card > input[type="text"] {
+  margin-bottom: 1rem;
+}
+
+.modal-card input[type="text"] {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  padding: 0.6rem 0.8rem;
+  font: inherit;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
 
 fieldset {
   margin: 0;
@@ -595,6 +650,16 @@ fieldset {
   border-radius: 18px;
   padding: 0.85rem;
   background: rgba(255, 255, 255, 0.45);
+}
+
+.side-fieldset-left {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.side-fieldset-right {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.35);
 }
 
 legend {

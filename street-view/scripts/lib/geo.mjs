@@ -126,6 +126,32 @@ export function trimPolyline(coords, startTrimM = 0, endTrimM = 0) {
   return trimmed;
 }
 
+// Extract a sub-polyline between two distances along the original.
+export function subPolyline(coords, startM, endM) {
+  const total = polylineLengthMeters(coords);
+  const s = clamp(startM, 0, total);
+  const e = clamp(endM, s, total);
+  const distances = cumulativeDistances(coords);
+  const result = [interpolateAlongPolyline(coords, s).coord];
+  for (let i = 1; i < coords.length - 1; i += 1) {
+    if (distances[i] > s && distances[i] < e) result.push(coords[i]);
+  }
+  result.push(interpolateAlongPolyline(coords, e).coord);
+  return result;
+}
+
+// Split a polyline into N equal-length sub-polylines.
+export function splitPolylineEqual(coords, n) {
+  if (n <= 1) return [coords];
+  const total = polylineLengthMeters(coords);
+  const step = total / n;
+  const parts = [];
+  for (let i = 0; i < n; i += 1) {
+    parts.push(subPolyline(coords, i * step, (i + 1) * step));
+  }
+  return parts;
+}
+
 export function polylineTurnDegrees(coords) {
   if (coords.length < 3) {
     return 0;

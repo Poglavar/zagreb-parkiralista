@@ -1,4 +1,5 @@
 // This module keeps the OpenAI prompt and JSON schema in one place so the Street View classifier stays consistent.
+// Assessments are per-station: each station covers ~50m of road and gets its own left/right parking decision.
 const SIDE_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -37,17 +38,18 @@ const SIDE_SCHEMA = {
   }
 };
 
-export const ASSESSMENT_SCHEMA = {
+const STATION_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: [
+    "station_index",
     "decision",
     "confidence",
-    "overall_notes",
     "segment_left",
     "segment_right"
   ],
   properties: {
+    station_index: { type: "integer", minimum: 0 },
     decision: {
       type: "string",
       enum: ["unclear", "none", "left", "right", "both"]
@@ -57,18 +59,36 @@ export const ASSESSMENT_SCHEMA = {
       minimum: 0,
       maximum: 1
     },
-    overall_notes: {
-      type: "string"
-    },
     segment_left: SIDE_SCHEMA,
     segment_right: SIDE_SCHEMA
   }
 };
 
-export const SYSTEM_PROMPT = `
-You are auditing curbside parking behavior from street-level images of the same road segment in Zagreb.
+export const ASSESSMENT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "stations",
+    "overall_notes"
+  ],
+  properties: {
+    stations: {
+      type: "array",
+      items: STATION_SCHEMA,
+      minItems: 1
+    },
+    overall_notes: {
+      type: "string"
+    }
+  }
+};
 
-Your job is not to segment pixels. Your job is to decide whether parking is a real recurring behavior on the segment, and if so on which side.
+export const SYSTEM_PROMPT = `
+You are auditing curbside parking behavior from street-level images of a road segment in Zagreb.
+
+This segment has multiple capture stations along it. Each station covers a different stretch of the road (~50m each). You must assess parking SEPARATELY for each station based on the images taken from that station.
+
+Your job is not to segment pixels. Your job is to decide whether parking is a real recurring behavior at each station, and if so on which side.
 
 Rules:
 - Count a side as parking when you see parked cars OR clear parking markings/signage that imply cars park there even if the image happens to be empty.
@@ -85,23 +105,35 @@ Important left/right mapping:
 - Some captures look in the reverse direction. In those images, segment-left = image-right and segment-right = image-left.
 - The user text for each image tells you which case applies. Use that mapping when synthesizing segment_left and segment_right.
 
+Different stations may have different parking arrangements. A long road may have parallel parking near one end and perpendicular near the other, or parking on one side only at certain stations. Assess each station independently.
+
 Output strict JSON only.
 `.trim();
 
 export function buildUserPrompt(segment) {
-  const captureLines = segment.captures.map((capture) => {
-    const mapping =
-      capture.direction === "forward"
-        ? "segment-left = image-left, segment-right = image-right"
-        : "segment-left = image-right, segment-right = image-left";
-    return [
-      `Capture ${capture.capture_id}:`,
-      `- station ${capture.station_index + 1}/${segment.station_count}`,
-      `- direction: ${capture.direction}`,
-      `- heading: ${capture.heading.toFixed(1)}°`,
-      `- mapping: ${mapping}`
-    ].join("\n");
-  });
+  const stationGroups = new Map();
+  for (const capture of segment.captures) {
+    const key = capture.station_index;
+    if (!stationGroups.has(key)) stationGroups.set(key, []);
+    stationGroups.get(key).push(capture);
+  }
+
+  const stationLines = [];
+  for (const [stationIndex, captures] of stationGroups) {
+    const captureLines = captures.map((capture) => {
+      const mapping =
+        capture.direction === "forward"
+          ? "segment-left = image-left, segment-right = image-right"
+          : "segment-left = image-right, segment-right = image-left";
+      return [
+        `  Capture ${capture.capture_id}:`,
+        `  - direction: ${capture.direction}`,
+        `  - heading: ${capture.heading.toFixed(1)}°`,
+        `  - mapping: ${mapping}`
+      ].join("\n");
+    });
+    stationLines.push(`Station ${stationIndex + 1}/${segment.station_count}:\n${captureLines.join("\n")}`);
+  }
 
   return [
     `Segment label: ${segment.label}`,
@@ -109,10 +141,12 @@ export function buildUserPrompt(segment) {
     `Segment length: ${segment.length_m.toFixed(1)} m`,
     `Estimated road width: ${segment.width_m.toFixed(2)} m`,
     `Reference area labels: ${segment.area_labels.join(" / ") || "unknown"}`,
-    `Capture summary:`,
-    captureLines.join("\n"),
+    `Number of stations: ${segment.station_count}`,
+    ``,
+    `Captures by station:`,
+    stationLines.join("\n\n"),
     "",
-    "Return a single segment-level decision.",
+    "Return one assessment per station. Each station should be evaluated independently.",
     "If one side is visible only weakly, keep the confidence lower instead of over-claiming."
   ].join("\n");
 }

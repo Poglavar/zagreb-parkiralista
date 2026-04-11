@@ -6,6 +6,7 @@ const PARKING_API_BASE = window.location.hostname === "localhost" || window.loca
   ? "http://localhost:3001/api/parking"
   : "/parkiralista/api/parking";
 const CDOF_WMS_URL = "https://geoportal.zagreb.hr/Public/Ortofoto2022_Public/GradZagreb_CDOF2022_Public/ows";
+const OSM_PARKING_URL = "./data/osm/parking_zagreb.geojson";
 
 const state = {
   segments: [],
@@ -19,10 +20,7 @@ const state = {
 const els = {
   areaSelect: document.getElementById("areaSelect"),
   reviewFilterField: document.getElementById("reviewFilterField"),
-  segmentSearchField: document.getElementById("segmentSearchField"),
   captureGrid: document.getElementById("captureGrid"),
-  segmentCount: document.getElementById("segmentCount"),
-  segmentList: document.getElementById("segmentList"),
   segmentTitle: document.getElementById("segmentTitle"),
   segmentMeta: document.getElementById("segmentMeta"),
   diagramShell: document.getElementById("diagramShell"),
@@ -136,6 +134,7 @@ async function loadArea(areaName) {
     state.index = 0;
     state.formPreview = null;
     console.log(`Loaded ${state.segments.length} segments for area: ${areaName || "all"}`);
+    renderAllPolygons();
     render();
   } catch (err) {
     console.error("Failed to load area:", err.message);
@@ -296,7 +295,7 @@ function updateFormPreview() {
   const preview = ensurePreviewState(segment);
   state.formPreview = { segmentId: segment.segment_id, assessment: formAssessment(), polygonOverrides: { ...(preview?.polygonOverrides || {}) } };
   updateConfirmButton(segment);
-  renderDiagram(segment);
+  renderSelection(segment);
 }
 
 // --- Rendering ---
@@ -392,7 +391,7 @@ function renderSegmentList() {
         <span class="muted">${formatNumber(seg.sides?.left?.confidence || seg.sides?.right?.confidence, 2)}</span>
       </div>
     `;
-    btn.addEventListener("click", () => { state.index = index; state.formPreview = null; render(); });
+    btn.addEventListener("click", () => selectSegment(index));
     els.segmentList.appendChild(btn);
   }
 }
@@ -401,6 +400,15 @@ function renderSegmentList() {
 
 function leafletColorForSide(side) {
   return side === "left" ? { stroke: "#9a3412", fill: "#f59e0b" } : { stroke: "#1d4ed8", fill: "#3b82f6" };
+}
+
+function bgColorForSegment(seg, side) {
+  const isSuspect = seg.review_status === "suspect";
+  const isConfirmed = seg.review_status === "confirmed";
+  const color = isSuspect ? "#b45309" : isConfirmed ? "#64748b" : (side === "left" ? "#9a3412" : "#1d4ed8");
+  const fill = isSuspect ? "#fbbf24" : isConfirmed ? "#cbd5e1" : (side === "left" ? "#f59e0b" : "#3b82f6");
+  const fillOpacity = isConfirmed ? 0.25 : 0.3;
+  return { color, fill, fillOpacity, dashArray: isSuspect ? "4 3" : null };
 }
 
 function midpointLatLng(a, b) {
@@ -497,12 +505,17 @@ function addPolygonToLayer(ring, sideKey, active, layer) {
 function ensureLeafletMap() {
   if (!window.L) return null;
   if (!state.map.instance) {
-    state.map.instance = window.L.map(els.segmentMap, { zoomControl: true, attributionControl: true, preferCanvas: true, scrollWheelZoom: true });
+    const mapOpts = { zoomControl: true, attributionControl: true, preferCanvas: true, scrollWheelZoom: true, zoomSnap: 0.25, zoomDelta: 0.5 };
+    state.map.instance = window.L.map(els.segmentMap, mapOpts);
     state.map.tileLayer = window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 22, maxNativeZoom: 19, attribution: "&copy; OSM" }).addTo(state.map.instance);
-    state.map.overlayLayer = window.L.featureGroup().addTo(state.map.instance);
 
-    state.map.satellite = window.L.map(els.satelliteMap, { zoomControl: false, attributionControl: true, preferCanvas: true, scrollWheelZoom: true });
+    state.map.satellite = window.L.map(els.satelliteMap, { ...mapOpts, zoomControl: false });
     window.L.tileLayer.wms(CDOF_WMS_URL, { layers: "ZG_CDOF2022", format: "image/jpeg", version: "1.1.1", transparent: false, maxZoom: 22, attribution: "CDOF 2022 &copy; Grad Zagreb" }).addTo(state.map.satellite);
+
+    // Layers: background (all polygons) + selection (current segment details)
+    state.map.bgLayer = window.L.featureGroup().addTo(state.map.instance);
+    state.map.bgLayerSat = window.L.featureGroup().addTo(state.map.satellite);
+    state.map.overlayLayer = window.L.featureGroup().addTo(state.map.instance);
     state.map.satelliteOverlay = window.L.featureGroup().addTo(state.map.satellite);
 
     let syncing = false;
@@ -511,13 +524,73 @@ function ensureLeafletMap() {
     }
     sync(state.map.instance, state.map.satellite);
     sync(state.map.satellite, state.map.instance);
+
+    // Load OSM parking as a reference layer (below our polygons)
+    fetch(OSM_PARKING_URL).then((r) => r.ok ? r.json() : null).then((fc) => {
+      if (!fc?.features) return;
+      const osmStyle = { radius: 3, weight: 0.5, color: "#475569", fillColor: "#94a3b8", fillOpacity: 0.4 };
+      const polyStyle = { weight: 1, color: "#475569", fillColor: "#94a3b8", fillOpacity: 0.15 };
+      const osmLayer = window.L.geoJSON(fc, {
+        pointToLayer: (f, ll) => window.L.circleMarker(ll, osmStyle),
+        style: () => polyStyle,
+        onEachFeature: (f, l) => {
+          const p = f.properties || {};
+          l.bindTooltip(p.name || "OSM parking", { direction: "top", className: "segment-tooltip" });
+        }
+      });
+      osmLayer.addTo(state.map.instance);
+      osmLayer.addTo(state.map.satellite);
+      // Move OSM layer behind our polygons
+      osmLayer.bringToBack();
+    }).catch(() => {});
   }
   state.map.instance.invalidateSize();
   state.map.satellite.invalidateSize();
   return state.map;
 }
 
-function renderDiagram(segment) {
+// Draw all segments' polygons as a clickable background layer. Called once per area load.
+function renderAllPolygons() {
+  const mc = ensureLeafletMap();
+  if (!mc) return;
+
+  mc.bgLayer.clearLayers();
+  mc.bgLayerSat.clearLayers();
+
+  for (let i = 0; i < state.segments.length; i += 1) {
+    const seg = state.segments[i];
+    const segIndex = i;
+    for (const side of ["left", "right"]) {
+      const rings = segmentPolygonRings(seg, side);
+      for (const ring of rings) {
+        const bc = bgColorForSegment(seg, side);
+        const style = { color: bc.color, weight: 1.5, fillColor: bc.fill, fillOpacity: bc.fillOpacity, dashArray: bc.dashArray };
+
+        const osmP = window.L.polygon(toLatLngPath(ring), style).addTo(mc.bgLayer);
+        const satP = window.L.polygon(toLatLngPath(ring), style).addTo(mc.bgLayerSat);
+        osmP._segIndex = segIndex;
+        satP._segIndex = segIndex;
+
+        osmP.on("click", () => selectSegment(segIndex));
+      }
+    }
+  }
+
+  // Fit map to all polygons only on initial area load, not on confirm/save
+  if (!state.suppressMapFly) {
+    const bounds = mc.bgLayer.getBounds();
+    if (bounds.isValid()) mc.instance.fitBounds(bounds.pad(0.05));
+  }
+}
+
+function selectSegment(index) {
+  state.index = index;
+  state.formPreview = null;
+  render();
+}
+
+// Draw the selected segment's editable polygons, centerline, and viewpoints on the selection layer.
+function renderSelection(segment) {
   const assessment = segmentAssessment(segment);
   const mc = ensureLeafletMap();
   if (!mc) return;
@@ -527,16 +600,32 @@ function renderDiagram(segment) {
   editablePolygons.left = null;
   editablePolygons.right = null;
 
+  // Hide background polygons for the selected segment, restore others
+  const si = state.index;
+  for (const bgL of [mc.bgLayer, mc.bgLayerSat]) {
+    bgL.eachLayer((l) => {
+      if (l._segIndex === si) {
+        l.setStyle({ opacity: 0, fillOpacity: 0 });
+      } else if (l.options.opacity === 0) {
+        const seg = state.segments[l._segIndex];
+        if (seg) {
+          const bc = bgColorForSegment(seg, "left");
+          l.setStyle({ opacity: 1, fillOpacity: bc.fillOpacity });
+        }
+      }
+    });
+  }
+
   for (const side of ["left", "right"]) {
     const sideA = side === "left" ? assessment?.segment_left : assessment?.segment_right;
-    const active = Boolean(sideA?.parking_present);
+    if (!sideA?.parking_present) continue;
     const rings = effectivePolygonRings(segment, assessment, side);
 
     rings.forEach((ring, ri) => {
-      const osmP = addPolygonToLayer(ring, side, active, mc.overlayLayer);
-      const satP = addPolygonToLayer(ring, side, active, mc.satelliteOverlay);
+      const osmP = addPolygonToLayer(ring, side, true, mc.overlayLayer);
+      const satP = addPolygonToLayer(ring, side, true, mc.satelliteOverlay);
 
-      if (osmP && satP && active && ri === 0) {
+      if (osmP && satP && ri === 0) {
         const entry = { layers: [osmP, satP], handleSets: [] };
         for (const [map, layer] of [[mc.instance, mc.overlayLayer], [mc.satellite, mc.satelliteOverlay]]) {
           const hs = { currentRing: cloneRing(ring) };
@@ -555,29 +644,42 @@ function renderDiagram(segment) {
   // Segment centerline
   if (segment.geometry) {
     const path = toLatLngPath(segment.geometry.coordinates);
-    const style = { color: "#122033", weight: 5, opacity: 0.92 };
+    const style = { color: "#122033", weight: 4, opacity: 0.85 };
     window.L.polyline(path, style).addTo(mc.overlayLayer);
     window.L.polyline(path, style).addTo(mc.satelliteOverlay);
   }
 
-  // Capture viewpoint markers
+  // Viewpoint markers
+  const stations = new Map();
   for (const cap of segment.captures || []) {
     if (!cap.viewpoint) continue;
-    const pos = [cap.viewpoint.lat, cap.viewpoint.lon];
-    const opts = {
-      radius: 6, weight: 2,
-      color: cap.direction === "forward" ? "#9a3412" : "#1d4ed8",
-      fillColor: cap.direction === "forward" ? "#f59e0b" : "#3b82f6",
-      fillOpacity: 0.95
-    };
-    const tip = `${cap.capture_id} · ${cap.direction} · ${formatNumber(cap.heading)}°`;
-    const tipOpts = { direction: "top", offset: [0, -4], className: "segment-tooltip" };
-    window.L.circleMarker(pos, opts).bindTooltip(tip, tipOpts).addTo(mc.overlayLayer);
-    window.L.circleMarker(pos, opts).bindTooltip(tip, tipOpts).addTo(mc.satelliteOverlay);
+    const key = cap.station_index ?? cap.capture_id;
+    if (!stations.has(key)) stations.set(key, { viewpoint: cap.viewpoint, captureIds: [] });
+    stations.get(key).captureIds.push(cap.capture_id);
+  }
+  for (const [, station] of stations) {
+    const pos = [station.viewpoint.lat, station.viewpoint.lon];
+    const opts = { radius: 7, weight: 2, color: "#122033", fillColor: "#e2e8f0", fillOpacity: 0.9 };
+    const ids = station.captureIds;
+    function onClick() {
+      const cards = els.captureGrid.querySelectorAll(".capture-card");
+      cards.forEach((c) => c.classList.remove("capture-highlight"));
+      let first = null;
+      for (const c of cards) {
+        if (ids.includes(c.querySelector("strong")?.textContent)) { c.classList.add("capture-highlight"); if (!first) first = c; }
+      }
+      if (first) first.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    window.L.circleMarker(pos, opts).bindTooltip(ids.join(" + "), { direction: "top", offset: [0, -4], className: "segment-tooltip" }).on("click", onClick).addTo(mc.overlayLayer);
+    window.L.circleMarker(pos, opts).on("click", onClick).addTo(mc.satelliteOverlay);
   }
 
-  const bounds = mc.overlayLayer.getBounds();
-  if (bounds.isValid()) mc.instance.fitBounds(bounds.pad(0.18), { maxZoom: 20 });
+  // Pan to selected segment unless suppressed (e.g. after confirm)
+  if (!state.suppressMapFly) {
+    const bounds = mc.overlayLayer.getBounds();
+    if (bounds.isValid()) mc.instance.flyToBounds(bounds.pad(0.08), { maxZoom: 21, duration: 0.4 });
+  }
+  state.suppressMapFly = false;
 }
 
 // --- Render ---
@@ -596,7 +698,6 @@ function render() {
   const visible = visibleSegmentIndexes();
   if (!visible.includes(state.index)) state.index = visible[0] ?? 0;
 
-  renderSegmentList();
   if (!visible.length) { renderEmptyState(); return; }
 
   const segment = currentSegment();
@@ -604,7 +705,7 @@ function render() {
   renderCaptures(segment);
   populateForm(segment);
   updateConfirmButton(segment);
-  renderDiagram(segment);
+  renderSelection(segment);
 
   const pos = visible.indexOf(state.index);
   els.prevButton.disabled = pos <= 0;
@@ -686,6 +787,8 @@ async function saveReview(reviewStatus, suspectReason = null) {
   }
 
   if (!apiOk) setOsmStatus("Spremanje na API nije uspjelo — provjerite konzolu.", "needs-attention");
+  state.suppressMapFly = true;
+  renderAllPolygons();
   render();
 }
 
@@ -694,7 +797,8 @@ async function saveReview(reviewStatus, suspectReason = null) {
 async function init() {
   // Load area list and populate dropdown
   const areas = await loadAreaList();
-  els.areaSelect.innerHTML = '<option value="all">Sva područja</option>';
+  const totals = areas.reduce((t, a) => ({ p: t.p + Number(a.pending_count), c: t.c + Number(a.confirmed_count), s: t.s + Number(a.suspect_count) }), { p: 0, c: 0, s: 0 });
+  els.areaSelect.innerHTML = `<option value="all">Sva područja (${totals.c} potvrđeno, ${totals.p} čeka, ${totals.s} sumnjivo)</option>`;
   for (const a of areas) {
     const opt = document.createElement("option");
     opt.value = a.label;
@@ -708,14 +812,26 @@ async function init() {
   // Events
   els.areaSelect.addEventListener("change", () => loadArea(els.areaSelect.value));
   els.reviewFilterField.addEventListener("change", () => loadArea(els.areaSelect.value));
-  els.segmentSearchField.addEventListener("input", () => { state.filters.search = els.segmentSearchField.value; render(); });
   els.prevButton.addEventListener("click", () => stepVisible(-1));
   els.nextButton.addEventListener("click", () => stepVisible(1));
   els.acceptAiButton.addEventListener("click", () => saveReview("confirmed"));
+  const suspectModal = document.getElementById("suspectModal");
+  const suspectReasonField = document.getElementById("suspectReasonField");
   els.suspectButton.addEventListener("click", () => {
-    const reason = prompt("Razlog sumnje (opcionalno):");
-    if (reason === null) return;
-    saveReview("suspect", reason || null);
+    suspectReasonField.value = "";
+    suspectModal.hidden = false;
+    suspectReasonField.focus();
+  });
+  document.getElementById("suspectModalCancel").addEventListener("click", () => {
+    suspectModal.hidden = true;
+  });
+  document.getElementById("suspectModalConfirm").addEventListener("click", () => {
+    suspectModal.hidden = true;
+    saveReview("suspect", suspectReasonField.value.trim() || null);
+  });
+  suspectReasonField.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); document.getElementById("suspectModalConfirm").click(); }
+    if (e.key === "Escape") { suspectModal.hidden = true; }
   });
 
   [els.leftPresentField, els.leftMannerField, els.leftLevelField, els.leftFormalityField,
