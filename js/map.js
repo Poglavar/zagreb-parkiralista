@@ -1104,6 +1104,36 @@ function init() {
       if (currentAggregation) renderTotalsTable(currentAggregation, currentSortKey);
     });
   });
+
+  // Mobile panel toggles
+  const legendEl = document.getElementById("legend");
+  const totalsEl = document.getElementById("totals-panel");
+  const layersBtn = document.getElementById("toggle-layers-btn");
+  const statsBtn = document.getElementById("toggle-stats-btn");
+
+  layersBtn.addEventListener("click", () => {
+    const opening = !legendEl.classList.contains("mobile-open");
+    legendEl.classList.toggle("mobile-open", opening);
+    totalsEl.classList.remove("mobile-open");
+    layersBtn.classList.toggle("active", opening);
+    statsBtn.classList.remove("active");
+  });
+
+  statsBtn.addEventListener("click", () => {
+    const opening = !totalsEl.classList.contains("mobile-open");
+    totalsEl.classList.toggle("mobile-open", opening);
+    legendEl.classList.remove("mobile-open");
+    statsBtn.classList.toggle("active", opening);
+    layersBtn.classList.remove("active");
+  });
+
+  // Tap map to close panels on mobile
+  mapRef.on("click", () => {
+    legendEl.classList.remove("mobile-open");
+    totalsEl.classList.remove("mobile-open");
+    layersBtn.classList.remove("active");
+    statsBtn.classList.remove("active");
+  });
 }
 
 document.addEventListener("DOMContentLoaded", init);

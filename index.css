@@ -144,7 +144,7 @@ html, body {
   color: #fff;
   text-decoration: none;
   background: #1d4ed8;
-  border-radius: 999px;
+  border-radius: 4px;
   padding: 0.2rem 0.6rem;
   margin-left: 0.3rem;
   display: inline-block;
@@ -494,21 +494,50 @@ html, body {
 .popup-table td { padding: 2px 0; }
 .popup-table a { color: #2563eb; }
 
+/* Mobile toggle buttons — hidden on desktop */
+.mobile-toggles {
+  display: none;
+}
+
+.mobile-toggle-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.mobile-toggle-btn.active {
+  background: #1d4ed8;
+  color: #fff;
+  border-color: #1d4ed8;
+}
+
 /* Mobile breakpoint */
 @media (max-width: 720px) {
   #topbar {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
     padding: 6px 10px;
   }
 
   #topbar h1 { font-size: 14px; }
 
+  .mobile-toggles {
+    display: flex;
+    gap: 4px;
+  }
+
   #headline-stats {
     gap: 14px;
     width: 100%;
     justify-content: space-between;
+    order: 3;
   }
 
   .headline-stat { align-items: flex-start; }
@@ -516,18 +545,32 @@ html, body {
 
   #legend {
     top: auto;
-    bottom: 12px;
-    right: 12px;
-    left: 12px;
+    bottom: 0;
+    right: 0;
+    left: 0;
     max-width: none;
+    border-radius: 12px 12px 0 0;
+    max-height: 55vh;
+    overflow-y: auto;
+    display: none;
+  }
+
+  #legend.mobile-open {
+    display: block;
   }
 
   .totals-panel {
     top: auto;
-    bottom: 12px;
-    left: 12px;
-    right: 12px;
+    bottom: 0;
+    left: 0;
+    right: 0;
     width: auto;
-    max-height: 50vh;
+    max-height: 55vh;
+    border-radius: 12px 12px 0 0;
+    display: none;
+  }
+
+  .totals-panel.mobile-open {
+    display: flex;
   }
 }
