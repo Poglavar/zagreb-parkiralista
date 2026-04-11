@@ -43,6 +43,65 @@ const layers = {
 // In-memory caches keyed by URL so re-selecting an admin level is instant.
 const bordersCache = new Map();
 
+// Running formal/informal counts accumulated as layers load.
+const formalityCounts = { formal: 0, informal: 0 };
+
+// Cross-cutting formality filter — toggled by the header checkboxes.
+const formalityFilter = { formal: true, informal: true };
+
+// Which formality each layer belongs to. Used by reapplyFormalityFilter()
+// and wireToggle() to respect the formality filter when showing layers.
+const LAYER_FORMALITY = {
+  osmOpen: "formal",
+  osmEnclosed: "formal",
+  ml: "informal",
+  llmAnthropic: "informal",
+  llmOpenai: "informal",
+  informal: "informal",            // SAM1
+  streetViewConfirmed: "informal",
+  streetViewPending: "informal",
+  streetViewSuspect: "informal",
+};
+
+// Checkbox ID that controls user visibility for each layer key.
+const LAYER_CHECKBOX = {
+  osmOpen: "toggle-osm-open",
+  osmEnclosed: "toggle-osm-enclosed",
+  ml: "toggle-ml",
+  llmAnthropic: "toggle-llm-anthropic",
+  llmOpenai: "toggle-llm-openai",
+  informal: "toggle-informal",
+  streetViewConfirmed: "toggle-street-view-confirmed",
+  streetViewPending: "toggle-street-view-pending",
+  streetViewSuspect: "toggle-street-view-suspect",
+};
+
+function updateFormalityStat() {
+  const formalDisplay = formalityFilter.formal ? formalityCounts.formal : 0;
+  const informalDisplay = formalityFilter.informal ? formalityCounts.informal : 0;
+  document.getElementById("hs-formal").textContent = formalDisplay > 0 ? formatNumber(formalDisplay) : "—";
+  document.getElementById("hs-informal-count").textContent = `${informalDisplay > 0 ? formatNumber(informalDisplay) : "—"} neslužbena`;
+}
+
+// Show or hide each layer based on both the user's per-layer toggle and the
+// formality filter. Called whenever either changes.
+function reapplyFormalityFilter() {
+  for (const [layerKey, formality] of Object.entries(LAYER_FORMALITY)) {
+    const layer = layers[layerKey];
+    if (!layer || !mapRef) continue;
+    const cbId = LAYER_CHECKBOX[layerKey];
+    const userOn = cbId ? (document.getElementById(cbId)?.checked !== false) : true;
+    const formalityOn = formalityFilter[formality];
+    if (userOn && formalityOn) {
+      if (!mapRef.hasLayer(layer)) layer.addTo(mapRef);
+    } else {
+      if (mapRef.hasLayer(layer)) mapRef.removeLayer(layer);
+    }
+  }
+  updateFormalityStat();
+  reaggregateTotals();
+}
+
 // Source-of-truth slices used for aggregation. Populated by loadOsmLayer() and loadStreetViewLayer().
 let osmFeatureCollection = null;
 // Per-feature aggregation handles. Each entry:
@@ -331,6 +390,9 @@ async function loadOsmLayer(map) {
     document.getElementById("count-osm-open").textContent = formatNumber(openFeatures.length);
     document.getElementById("count-osm-enclosed").textContent = formatNumber(enclosedFeatures.length);
     updateHeadline(osmFeatureCollection.metadata);
+    // All OSM parking is considered formal
+    formalityCounts.formal += osmFeatureCollection.features.length;
+    updateFormalityStat();
   } catch (err) {
     console.error("Failed to load OSM parking layer:", err);
     document.getElementById("hs-spots").textContent = "—";
@@ -515,7 +577,7 @@ async function loadInformalLayer(map) {
       const typeLabel = INFORMAL_TYPE_LABELS[p.informal_type] || p.informal_type || "—";
       const cropHtml = buildTileCropHtml(p);
       const html = `
-        <strong>Neslužbeno parkiranje (Faza 3)</strong>
+        <strong>SAM1 detekcija</strong>
         ${cropHtml}
         <table class="popup-table">
           <tr><th>Vozilo</th><td>${escapeHtml(p.class || "vozilo")}</td></tr>
@@ -536,6 +598,10 @@ async function loadInformalLayer(map) {
   cb.disabled = false;
   cb.checked = true;
   document.getElementById("count-informal").textContent = formatNumber(fc.features.length);
+
+  // All detected informal parking is, by definition, informal.
+  formalityCounts.informal += fc.features.length;
+  updateFormalityStat();
 
   // Surface a non-prominent informal-count in the headline so the user can see
   // the running total without having to open a layer.
@@ -1036,6 +1102,18 @@ async function loadStreetViewLayer(map) {
   const allCountEl = document.getElementById("count-street-view-all");
   if (allCountEl) allCountEl.textContent = fc.features.length;
 
+  // Count formality: use tags.formality if present; default to informal since
+  // street-view entries are mostly informal parking found in the field.
+  for (const f of fc.features) {
+    const formality = f.properties?.tags?.formality;
+    if (formality === "formal") {
+      formalityCounts.formal++;
+    } else {
+      formalityCounts.informal++;
+    }
+  }
+  updateFormalityStat();
+
   // Update headline to include street view data
   reaggregateTotals();
 }
@@ -1047,7 +1125,9 @@ function wireToggle(checkboxId, layerName) {
   cb.addEventListener("change", () => {
     const layer = layers[layerName];
     if (!layer) return;
-    if (cb.checked) layer.addTo(mapRef);
+    const formality = LAYER_FORMALITY[layerName];
+    const formalityOn = !formality || formalityFilter[formality];
+    if (cb.checked && formalityOn) layer.addTo(mapRef);
     else mapRef.removeLayer(layer);
     reaggregateTotals();
   });
@@ -1061,18 +1141,20 @@ function visibleHandles() {
   const svSuspectVisible = document.getElementById("toggle-street-view-suspect")?.checked !== false;
 
   const filtered = [];
-  if (osmHandles) {
+  if (osmHandles && formalityFilter.formal) {
     for (const h of osmHandles) {
       if (h.kind === "open_air" && !osmOpenVisible) continue;
       if (h.kind === "enclosed" && !osmEnclosedVisible) continue;
       filtered.push(h);
     }
   }
-  for (const h of streetViewHandles) {
-    if (h.status === "confirmed" && !svConfirmedVisible) continue;
-    if (h.status === "pending" && !svPendingVisible) continue;
-    if (h.status === "suspect" && !svSuspectVisible) continue;
-    filtered.push(h);
+  if (formalityFilter.informal) {
+    for (const h of streetViewHandles) {
+      if (h.status === "confirmed" && !svConfirmedVisible) continue;
+      if (h.status === "pending" && !svPendingVisible) continue;
+      if (h.status === "suspect" && !svSuspectVisible) continue;
+      filtered.push(h);
+    }
   }
   return filtered;
 }
@@ -1150,6 +1232,16 @@ function init() {
   wireToggle("toggle-street-view-confirmed", "streetViewConfirmed");
   wireToggle("toggle-street-view-pending", "streetViewPending");
   wireToggle("toggle-street-view-suspect", "streetViewSuspect");
+
+  // Formality cross-filter — affect all layers and headline counts
+  document.getElementById("filter-formal").addEventListener("change", (e) => {
+    formalityFilter.formal = e.target.checked;
+    reapplyFormalityFilter();
+  });
+  document.getElementById("filter-informal").addEventListener("change", (e) => {
+    formalityFilter.informal = e.target.checked;
+    reapplyFormalityFilter();
+  });
 
   document.getElementById("admin-level").addEventListener("change", (e) => {
     selectAdminLevel(e.target.value);

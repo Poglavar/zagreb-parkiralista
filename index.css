@@ -43,7 +43,17 @@ html, body {
   font-size: 16px;
   margin: 0;
   font-weight: 600;
+}
+
+.topbar-title-text {
   white-space: nowrap;
+}
+
+.topbar-tagline {
+  font-size: 11px;
+  font-weight: 400;
+  color: #6b7280;
+  margin-left: 6px;
 }
 
 #headline-stats {
@@ -507,6 +517,31 @@ a.popup-review-link {
 }
 .popup-review-link:hover { background: #1e40af; }
 
+/* Formality cross-filter — formal / informal checkboxes in the topbar */
+.formality-filter {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.formality-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.formality-label input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
 /* Mobile toggle buttons — hidden on desktop */
 .mobile-toggles {
   display: none;
@@ -540,6 +575,10 @@ a.popup-review-link {
   }
 
   #topbar h1 { font-size: 14px; }
+  .topbar-tagline { font-size: 9px; }
+
+  .formality-filter { gap: 8px; }
+  .formality-label { font-size: 11px; }
 
   .mobile-toggles {
     display: flex;
