@@ -1,37 +1,37 @@
-<!-- Reviewer for AI-generated parking area polygons, loaded from the parking API. -->
+<!-- Preglednik AI-generiranih poligona parkirnih zona, podaci iz parking API-ja. -->
 <!doctype html>
-<html lang="en">
+<html lang="hr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Street View Parking Review</title>
+    <title>Pregled segmenata parkiranja</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <link rel="stylesheet" href="./review.css" />
   </head>
   <body>
     <header class="topbar">
-      <h1 class="topbar-title">Segment Review</h1>
+      <h1 class="topbar-title">Pregled segmenata</h1>
       <label class="topbar-area-label muted">
-        Area
+        Područje
         <select id="areaSelect"></select>
       </label>
       <label class="topbar-area-label muted">
         Status
         <select id="reviewFilterField">
-          <option value="all">all</option>
-          <option value="pending">pending</option>
-          <option value="confirmed">confirmed</option>
-          <option value="suspect">suspect</option>
+          <option value="all">svi</option>
+          <option value="pending">na čekanju</option>
+          <option value="confirmed">potvrđeno</option>
+          <option value="suspect">sumnjivo</option>
         </select>
       </label>
-      <input id="segmentSearchField" type="search" placeholder="Search segment..." class="topbar-search" />
+      <input id="segmentSearchField" type="search" placeholder="Pretraži segment..." class="topbar-search" />
     </header>
 
     <main class="layout">
       <aside class="segment-rail">
         <div class="card rail-card">
-          <h2>Segments</h2>
-          <p id="segmentCount" class="muted">Loading...</p>
+          <h2>Segmenti</h2>
+          <p id="segmentCount" class="muted">Učitavanje...</p>
           <div id="segmentList" class="segment-list"></div>
         </div>
       </aside>
@@ -40,8 +40,8 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <p class="eyebrow">Current Segment</p>
-              <h2 id="segmentTitle">Loading...</h2>
+              <p class="eyebrow">Trenutni segment</p>
+              <h2 id="segmentTitle">Učitavanje...</h2>
             </div>
           </div>
           <div id="segmentMeta" class="meta-grid"></div>
@@ -51,75 +51,74 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <p class="eyebrow">Segment Geometry</p>
-              <h2>Segment Map</h2>
+              <p class="eyebrow">Karta segmenta</p>
+              <h2>Karta</h2>
             </div>
           </div>
           <div class="dual-map-shell">
             <div id="diagramShell" class="diagram-shell">
-              <div id="segmentMap" class="segment-map" aria-label="OSM segment map"></div>
+              <div id="segmentMap" class="segment-map" aria-label="OSM karta segmenta"></div>
             </div>
             <div class="diagram-shell">
-              <div id="satelliteMap" class="segment-map" aria-label="Satellite segment map"></div>
+              <div id="satelliteMap" class="segment-map" aria-label="Satelitska karta segmenta"></div>
             </div>
           </div>
 
-          <!-- Assessment: inline-editable, preset from AI -->
           <form id="overrideForm" class="assessment-form">
             <div class="side-grid">
               <fieldset class="side-fieldset">
-                <legend>Left Side</legend>
+                <legend>Lijeva strana</legend>
                 <div class="side-summary-row">
-                  <label class="check-label"><input id="leftPresentField" type="checkbox" /> Parking</label>
+                  <label class="check-label"><input id="leftPresentField" type="checkbox" /> Parkiranje</label>
                   <select id="leftMannerField">
-                    <option value="none">none</option>
-                    <option value="parallel">parallel</option>
-                    <option value="perpendicular">perpendicular</option>
-                    <option value="diagonal">diagonal</option>
-                    <option value="mixed">mixed</option>
-                    <option value="unknown">unknown</option>
+                    <option value="none">nema</option>
+                    <option value="parallel">uzdužno</option>
+                    <option value="perpendicular">okomito</option>
+                    <option value="diagonal">koso</option>
+                    <option value="mixed">mješovito</option>
+                    <option value="unknown">nepoznato</option>
                   </select>
                   <select id="leftLevelField">
-                    <option value="road_level">road level</option>
-                    <option value="sidewalk">sidewalk</option>
-                    <option value="gravel_shoulder">gravel shoulder</option>
-                    <option value="mixed">mixed</option>
-                    <option value="unknown">unknown</option>
+                    <option value="road_level">kolnik</option>
+                    <option value="sidewalk">pločnik</option>
+                    <option value="gravel_shoulder">bankina</option>
+                    <option value="mixed">mješovito</option>
+                    <option value="unknown">nepoznato</option>
                   </select>
                   <select id="leftFormalityField">
-                    <option value="formal">formal</option>
-                    <option value="informal">informal</option>
-                    <option value="mixed">mixed</option>
-                    <option value="unknown">unknown</option>
+                    <option value="formal">službeno</option>
+                    <option value="informal">neslužbeno</option>
+                    <option value="mixed">mješovito</option>
+                    <option value="unknown">nepoznato</option>
                   </select>
                   <span class="confidence-display muted" id="leftConfidenceDisplay"></span>
                 </div>
                 <input id="leftConfidenceField" type="hidden" />
               </fieldset>
               <fieldset class="side-fieldset">
-                <legend>Right Side</legend>
+                <legend>Desna strana</legend>
                 <div class="side-summary-row">
-                  <label class="check-label"><input id="rightPresentField" type="checkbox" /> Parking</label>
+                  <label class="check-label"><input id="rightPresentField" type="checkbox" /> Parkiranje</label>
                   <select id="rightMannerField">
-                    <option value="none">none</option>
-                    <option value="parallel">parallel</option>
-                    <option value="perpendicular">perpendicular</option>
-                    <option value="diagonal">diagonal</option>
-                    <option value="mixed">mixed</option>
-                    <option value="unknown">unknown</option>
+                    <option value="none">nema</option>
+                    <option value="parallel">uzdužno</option>
+                    <option value="perpendicular">okomito</option>
+                    <option value="diagonal">koso</option>
+                    <option value="mixed">mješovito</option>
+                    <option value="unknown">nepoznato</option>
                   </select>
                   <select id="rightLevelField">
-                    <option value="road_level">road level</option>
-                    <option value="sidewalk">sidewalk</option>
-                    <option value="gravel_shoulder">gravel shoulder</option>
-                    <option value="mixed">mixed</option>
-                    <option value="unknown">unknown</option>
+                    <option value="road_level">kolnik</option>
+                    <option value="sidewalk">pločnik</option>
+                    <option value="gravel_shoulder">bankina</option>
+                    <option value="mixed">mješovito</option>
+                    <option value="unknown">nepoznato</option>
                   </select>
                   <select id="rightFormalityField">
-                    <option value="formal">formal</option>
-                    <option value="informal">informal</option>
-                    <option value="mixed">mixed</option>
-                    <option value="unknown">unknown</option>
+                    <option value="formal">službeno</option>
+                    <option value="informal">neslužbeno</option>
+                    <option value="mixed">mješovito</option>
+                    <option value="unknown">nepoznato</option>
                   </select>
                   <span class="confidence-display muted" id="rightConfidenceDisplay"></span>
                 </div>
@@ -131,13 +130,12 @@
             <input id="reviewerNotesField" type="hidden" />
           </form>
 
-          <!-- Action bar -->
           <div class="action-bar">
-            <button id="acceptAiButton" type="button" class="btn-confirm">Confirm</button>
-            <button id="suspectButton" type="button">Suspect</button>
+            <button id="acceptAiButton" type="button" class="btn-confirm">Potvrdi</button>
+            <button id="suspectButton" type="button">Sumnjivo</button>
             <span class="action-spacer"></span>
-            <button id="prevButton" type="button">Previous</button>
-            <button id="nextButton" type="button">Next</button>
+            <button id="prevButton" type="button">Prethodni</button>
+            <button id="nextButton" type="button">Sljedeći</button>
           </div>
           <div id="osmSubmitStatus" class="summary-block muted"></div>
         </div>

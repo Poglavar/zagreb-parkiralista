@@ -108,7 +108,7 @@ describe("parseBatchResultsJsonl", () => {
     const results = parseBatchResultsJsonl(line);
     assert.equal(results.length, 1);
     assert.equal(results[0].ok, false);
-    assert.match(results[0].error, /Failed to parse assessment JSON/);
+    assert.match(results[0].error, /Failed to parse JSON/);
   });
 
   it("parses multiple lines", () => {

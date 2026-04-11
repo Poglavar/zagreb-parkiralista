@@ -276,17 +276,17 @@ function setPolygonPreview(side, ring) {
   preview.assessment = formAssessment();
   state.formPreview = preview;
   updateConfirmButton(segment);
-  setOsmStatus("Unsaved preview — click Confirm or Suspect to save.", "needs-attention");
+  setOsmStatus("Nespremljeni promjene — kliknite Potvrdi ili Sumnjivo.", "needs-attention");
 }
 
 function updateConfirmButton(segment) {
   const status = !state.formPreview ? segment?.review_status : null;
   const isConfirmed = status === "confirmed";
-  els.acceptAiButton.textContent = isConfirmed ? "Confirmed" : "Confirm";
+  els.acceptAiButton.textContent = isConfirmed ? "Potvrđeno" : "Potvrdi";
   els.acceptAiButton.classList.toggle("btn-confirmed", isConfirmed);
   els.acceptAiButton.classList.toggle("btn-confirm", !isConfirmed);
   const isSuspect = status === "suspect";
-  els.suspectButton.textContent = isSuspect ? "Suspected" : "Suspect";
+  els.suspectButton.textContent = isSuspect ? "Označeno sumnjivim" : "Sumnjivo";
   els.suspectButton.classList.toggle("btn-suspect-active", isSuspect);
 }
 
@@ -322,18 +322,33 @@ function renderCaptures(segment) {
     const card = document.createElement("article");
     card.className = "capture-card";
 
+    const isForward = cap.direction === "forward";
+    // In forward images: image-left = segment-left (L), image-right = segment-right (D)
+    // In reverse images: image-left = segment-right (D), image-right = segment-left (L)
+    const imgLeftSide = isForward ? "left" : "right";
+    const imgRightSide = isForward ? "right" : "left";
+    const imgLeftLabel = isForward ? "L" : "D";
+    const imgRightLabel = isForward ? "D" : "L";
+
+    const media = document.createElement("div");
+    media.className = "capture-media";
     if (cap.image_path) {
       const img = document.createElement("img");
       img.src = cap.image_path;
       img.alt = `${cap.capture_id}`;
-      card.appendChild(img);
+      media.appendChild(img);
     }
+    media.insertAdjacentHTML("beforeend",
+      `<span class="capture-overlay capture-overlay-left side-${imgLeftSide}">${imgLeftLabel}</span>` +
+      `<span class="capture-overlay capture-overlay-right side-${imgRightSide}">${imgRightLabel}</span>`
+    );
+    card.appendChild(media);
 
     const meta = document.createElement("div");
     meta.className = "capture-meta";
     meta.innerHTML = `
       <p><strong>${cap.capture_id}</strong> · ${cap.direction} · ${formatNumber(cap.heading)}°</p>
-      ${cap.maps_url ? `<p><a href="${cap.maps_url}" target="_blank" rel="noopener">Open panorama</a></p>` : ""}
+      ${cap.maps_url ? `<p><a href="${cap.maps_url}" target="_blank" rel="noopener">Otvori panoramu</a></p>` : ""}
     `;
     card.appendChild(meta);
     els.captureGrid.appendChild(card);
@@ -356,7 +371,7 @@ function visibleSegmentIndexes() {
 
 function renderSegmentList() {
   const visible = visibleSegmentIndexes();
-  els.segmentCount.textContent = `${visible.length} segments`;
+  els.segmentCount.textContent = `${visible.length} segmenata`;
   els.segmentList.innerHTML = "";
 
   for (const index of visible) {
@@ -365,11 +380,12 @@ function renderSegmentList() {
     btn.type = "button";
     btn.className = `segment-chip ${index === state.index ? "active" : ""}`;
     const sides = Object.keys(seg.sides).join("+") || "—";
+    const statusLabelsChip = { pending: "na čekanju", confirmed: "potvrđeno", suspect: "sumnjivo" };
     const statusClass = seg.review_status === "confirmed" ? "reviewed" : seg.review_status === "pending" ? "needs-review" : "";
     btn.innerHTML = `
       <div class="chip-topline">
         <strong>${seg.label || seg.segment_id}</strong>
-        <span class="chip-badge ${statusClass}">${seg.review_status}</span>
+        <span class="chip-badge ${statusClass}">${statusLabelsChip[seg.review_status] || seg.review_status}</span>
       </div>
       <div class="chip-footline">
         <span>#${seg.segment_id} · ${sides}</span>
@@ -567,11 +583,11 @@ function renderDiagram(segment) {
 // --- Render ---
 
 function renderEmptyState() {
-  els.segmentTitle.textContent = "No segments";
+  els.segmentTitle.textContent = "Nema segmenata";
   els.segmentMeta.innerHTML = "";
   els.prevButton.disabled = true;
   els.nextButton.disabled = true;
-  setOsmStatus("No parking areas found for this area/filter.", "muted");
+  setOsmStatus("Nema parkirnih zona za odabrano područje/filter.", "muted");
 }
 
 function render() {
@@ -595,7 +611,8 @@ function render() {
   els.nextButton.disabled = pos >= visible.length - 1;
 
   const hasSides = Object.keys(segment.sides || {}).length;
-  setOsmStatus(`${hasSides} side(s) · ${segment.review_status}`, "muted");
+  const statusLabels = { pending: "na čekanju", confirmed: "potvrđeno", suspect: "sumnjivo" };
+  setOsmStatus(`${hasSides} strana · ${statusLabels[segment.review_status] || segment.review_status}`, "muted");
 }
 
 function stepVisible(dir) {
@@ -607,7 +624,7 @@ function stepVisible(dir) {
 
 // --- Save to API ---
 
-async function saveReview(reviewStatus) {
+async function saveReview(reviewStatus, suspectReason = null) {
   const segment = currentSegment();
   if (!segment) return;
 
@@ -638,6 +655,7 @@ async function saveReview(reviewStatus) {
           tags: { parking_manner: sa.parking_manner, parking_level: sa.parking_level, formality: sa.formality, label: segment.label },
           confidence: sa.confidence,
           review_status: reviewStatus,
+          suspect_reason: suspectReason,
           active: true,
           updated_by: "street-view-reviewer"
         })
@@ -667,7 +685,7 @@ async function saveReview(reviewStatus) {
     segment.sides[polygon.side].confidence = (polygon.side === "left" ? assessment.segment_left : assessment.segment_right).confidence;
   }
 
-  if (!apiOk) setOsmStatus("API save failed — check console.", "needs-attention");
+  if (!apiOk) setOsmStatus("Spremanje na API nije uspjelo — provjerite konzolu.", "needs-attention");
   render();
 }
 
@@ -676,7 +694,7 @@ async function saveReview(reviewStatus) {
 async function init() {
   // Load area list and populate dropdown
   const areas = await loadAreaList();
-  els.areaSelect.innerHTML = '<option value="all">All areas</option>';
+  els.areaSelect.innerHTML = '<option value="all">Sva područja</option>';
   for (const a of areas) {
     const opt = document.createElement("option");
     opt.value = a.label;
@@ -694,7 +712,11 @@ async function init() {
   els.prevButton.addEventListener("click", () => stepVisible(-1));
   els.nextButton.addEventListener("click", () => stepVisible(1));
   els.acceptAiButton.addEventListener("click", () => saveReview("confirmed"));
-  els.suspectButton.addEventListener("click", () => saveReview("suspect"));
+  els.suspectButton.addEventListener("click", () => {
+    const reason = prompt("Razlog sumnje (opcionalno):");
+    if (reason === null) return;
+    saveReview("suspect", reason || null);
+  });
 
   [els.leftPresentField, els.leftMannerField, els.leftLevelField, els.leftFormalityField,
    els.rightPresentField, els.rightMannerField, els.rightLevelField, els.rightFormalityField
@@ -705,5 +727,5 @@ async function init() {
 }
 
 init().catch((err) => {
-  document.body.innerHTML = `<main style="padding:2rem;font-family:Georgia,serif;"><h1>Review unavailable</h1><p>${err.message}</p><p>Is the parking API running?</p></main>`;
+  document.body.innerHTML = `<main style="padding:2rem;font-family:Georgia,serif;"><h1>Preglednik nedostupan</h1><p>${err.message}</p><p>Je li parking API pokrenut?</p></main>`;
 });

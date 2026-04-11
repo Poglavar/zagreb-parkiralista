@@ -1,5 +1,7 @@
-// Downloads completed OpenAI batch results and converts them to the same analyses JSON format as live processing.
+// Downloads completed OpenAI batch results and converts them to analyses JSON.
+// Supports multi-chunk trackers from the chunked submit script.
 import { pathToFileURL } from "url";
+import { readFile } from "fs/promises";
 import { calculateOpenAiUsageCost, summarizeOpenAiCosts } from "./lib/billing.mjs";
 import { fileExists, readJson, resolveFrom, writeJson } from "./lib/io.mjs";
 
@@ -21,16 +23,10 @@ function parseArgs(argv) {
     else if (argv[i] === "--key-env") args.keyEnv = argv[++i];
     else if (argv[i] === "--status") args.status = true;
     else if (argv[i] === "--help") {
-      console.log("Usage: node scripts/import-openai-batch.mjs [--batch-id id] [--results-jsonl path] [--out path] [--status]");
+      console.log("Usage: node scripts/import-openai-batch.mjs [--tracker path] [--status] [--out path]");
       console.log("");
-      console.log("Reads batch ID from the tracker file (written by submit-openai-batch.mjs),");
-      console.log("checks status, downloads results when complete, and writes analyses JSON.");
-      console.log("");
-      console.log("Options:");
-      console.log("  --status          Check batch status and exit (do not download/import).");
-      console.log("  --batch-id id     Override batch ID (skip tracker file).");
-      console.log("  --results-jsonl   Import from a local JSONL file (skip API download).");
-      console.log("  --out path        Output analyses JSON path (default: same dir as tracker).");
+      console.log("Checks all batch chunks, downloads completed results, writes analyses JSON.");
+      console.log("  --status   Show status of all chunks and exit.");
       process.exit(0);
     } else {
       throw new Error(`Unknown argument: ${argv[i]}`);
@@ -41,16 +37,11 @@ function parseArgs(argv) {
 }
 
 function extractOutputText(body) {
-  if (typeof body.output_text === "string" && body.output_text.trim()) {
-    return body.output_text;
-  }
-
+  if (typeof body.output_text === "string" && body.output_text.trim()) return body.output_text;
   const collected = [];
   for (const outputItem of body.output || []) {
     for (const contentItem of outputItem.content || []) {
-      if (typeof contentItem.text === "string") {
-        collected.push(contentItem.text);
-      }
+      if (typeof contentItem.text === "string") collected.push(contentItem.text);
     }
   }
   return collected.join("\n").trim();
@@ -59,194 +50,179 @@ function extractOutputText(body) {
 export function parseBatchResultsJsonl(jsonlText) {
   const lines = jsonlText.trim().split("\n").filter(Boolean);
   const results = [];
-
   for (const line of lines) {
     const entry = JSON.parse(line);
-    const customId = entry.custom_id || "";
-    const segmentId = customId.replace(/^segment-/, "");
-
+    const segmentId = (entry.custom_id || "").replace(/^segment-/, "");
     if (entry.error) {
-      results.push({
-        segment_id: segmentId,
-        ok: false,
-        error: entry.error.message || JSON.stringify(entry.error)
-      });
+      results.push({ segment_id: segmentId, ok: false, error: entry.error.message || JSON.stringify(entry.error) });
       continue;
     }
-
     const response = entry.response;
     if (!response || response.status_code !== 200) {
-      results.push({
-        segment_id: segmentId,
-        ok: false,
-        error: `HTTP ${response?.status_code || "unknown"}: ${JSON.stringify(response?.body || {})}`
-      });
+      results.push({ segment_id: segmentId, ok: false, error: `HTTP ${response?.status_code || "unknown"}` });
       continue;
     }
-
     const body = response.body;
     const rawText = extractOutputText(body);
-    const model = body.model || null;
-    const usage = body.usage || null;
-
     let assessment;
-    try {
-      assessment = JSON.parse(rawText);
-    } catch {
-      results.push({
-        segment_id: segmentId,
-        ok: false,
-        error: `Failed to parse assessment JSON: ${rawText.slice(0, 200)}`
-      });
+    try { assessment = JSON.parse(rawText); } catch {
+      results.push({ segment_id: segmentId, ok: false, error: `Failed to parse JSON: ${rawText.slice(0, 200)}` });
       continue;
     }
-
     results.push({
-      segment_id: segmentId,
-      ok: true,
-      response_id: body.id || null,
-      model,
-      usage,
-      raw_text: rawText,
-      assessment
+      segment_id: segmentId, ok: true, response_id: body.id || null,
+      model: body.model || null, usage: body.usage || null,
+      raw_text: rawText, assessment
     });
   }
-
   return results;
 }
 
 async function fetchBatchStatus(apiKey, batchId) {
-  const response = await fetch(`https://api.openai.com/v1/batches/${batchId}`, {
+  const resp = await fetch(`https://api.openai.com/v1/batches/${batchId}`, {
     headers: { Authorization: `Bearer ${apiKey}` }
   });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to fetch batch status: HTTP ${response.status}: ${errorText}`);
-  }
-  return response.json();
+  if (!resp.ok) throw new Error(`Batch status fetch failed: ${resp.status}: ${await resp.text()}`);
+  return resp.json();
 }
 
 async function downloadOutputFile(apiKey, fileId) {
-  const response = await fetch(`https://api.openai.com/v1/files/${fileId}/content`, {
+  const resp = await fetch(`https://api.openai.com/v1/files/${fileId}/content`, {
     headers: { Authorization: `Bearer ${apiKey}` }
   });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to download output file: HTTP ${response.status}: ${errorText}`);
-  }
-  return response.text();
-}
-
-function printBatchStatus(batch) {
-  console.log(`Batch: ${batch.id}`);
-  console.log(`Status: ${batch.status}`);
-  if (batch.request_counts) {
-    const rc = batch.request_counts;
-    console.log(`Requests: ${rc.completed || 0} completed, ${rc.failed || 0} failed, ${rc.total || 0} total`);
-  }
-  if (batch.created_at) {
-    console.log(`Created: ${new Date(batch.created_at * 1000).toISOString()}`);
-  }
-  if (batch.completed_at) {
-    console.log(`Completed: ${new Date(batch.completed_at * 1000).toISOString()}`);
-  }
-  if (batch.error_file_id) {
-    console.log(`Error file: ${batch.error_file_id}`);
-  }
+  if (!resp.ok) throw new Error(`File download failed: ${resp.status}: ${await resp.text()}`);
+  return resp.text();
 }
 
 export async function importOpenAiBatch({ tracker, batchId, resultsJsonl, out, keyEnv, status }) {
-  let jsonlText;
-  let model = null;
+  // Single batch ID mode (backwards compat)
+  if (batchId || resultsJsonl) {
+    return importSingleBatch({ batchId, resultsJsonl, out, keyEnv, status, tracker });
+  }
 
-  if (resultsJsonl) {
-    // Import from local file
-    if (!(await fileExists(resultsJsonl))) {
-      throw new Error(`Results JSONL not found: ${resultsJsonl}`);
-    }
-    const { readFile } = await import("fs/promises");
-    jsonlText = await readFile(resultsJsonl, "utf8");
-    console.log(`Reading results from local file: ${resultsJsonl}`);
-  } else {
-    // Resolve batch ID from tracker or argument
-    if (!batchId) {
-      if (!(await fileExists(tracker))) {
-        throw new Error(`Tracker file not found: ${tracker}. Run submit-openai-batch.mjs first, or pass --batch-id.`);
-      }
-      const trackerData = await readJson(tracker);
-      batchId = trackerData.batch_id;
-      if (!batchId) {
-        throw new Error("Tracker file does not contain a batch_id.");
-      }
-    }
+  if (!(await fileExists(tracker))) {
+    throw new Error(`Tracker not found: ${tracker}. Run submit-openai-batch.mjs first.`);
+  }
 
-    const apiKey = process.env[keyEnv];
-    if (!apiKey) {
-      throw new Error(`Missing ${keyEnv} in the environment.`);
-    }
+  const trackerData = await readJson(tracker);
 
-    // Check status
-    const batch = await fetchBatchStatus(apiKey, batchId);
-    printBatchStatus(batch);
+  // Old single-batch tracker format
+  if (trackerData.batch_id && !trackerData.chunks) {
+    return importSingleBatch({ batchId: trackerData.batch_id, out, keyEnv, status, tracker });
+  }
 
-    if (status) {
+  // Multi-chunk tracker
+  const chunks = trackerData.chunks || [];
+  if (!chunks.length) {
+    throw new Error("Tracker has no chunks.");
+  }
+
+  const apiKey = process.env[keyEnv];
+  if (!apiKey) throw new Error(`Missing ${keyEnv} in the environment.`);
+
+  console.log(`Tracker: ${chunks.length} chunks, ${trackerData.total_requests} total requests\n`);
+
+  let allCompleted = true;
+  let totalCostUsd = 0;
+  const chunkStatuses = [];
+
+  for (const chunk of chunks) {
+    const batch = await fetchBatchStatus(apiKey, chunk.batch_id);
+    const rc = batch.request_counts || {};
+    const costLine = batch.status === "completed" ? "" : "";
+    console.log(`  Chunk ${chunk.chunk_index + 1}: ${batch.status} — ${rc.completed || 0}/${rc.total || chunk.request_count} completed, ${rc.failed || 0} failed`);
+    chunkStatuses.push({ ...chunk, api_status: batch.status, request_counts: rc, output_file_id: batch.output_file_id });
+
+    if (batch.status !== "completed") allCompleted = false;
+  }
+  console.log("");
+
+  if (status) return;
+
+  if (!allCompleted) {
+    const pending = chunkStatuses.filter((c) => !["completed", "failed", "expired", "cancelled"].includes(c.api_status));
+    const failed = chunkStatuses.filter((c) => ["failed", "expired", "cancelled"].includes(c.api_status));
+    if (pending.length) console.log(`${pending.length} chunk(s) still processing. Run again later.`);
+    if (failed.length) console.log(`${failed.length} chunk(s) failed. These can be resubmitted.`);
+    if (!pending.length && failed.length) {
+      console.log("All remaining chunks have failed. Importing completed chunks only.");
+    } else if (pending.length) {
       return;
     }
-
-    if (batch.status !== "completed") {
-      if (batch.status === "failed" || batch.status === "expired" || batch.status === "cancelled") {
-        throw new Error(`Batch ${batchId} ${batch.status}. Cannot import results.`);
-      }
-      console.log("");
-      console.log("Batch is still processing. Run again later, or use --status to check progress.");
-      return;
-    }
-
-    if (!batch.output_file_id) {
-      throw new Error(`Batch ${batchId} completed but has no output_file_id.`);
-    }
-
-    console.log(`Downloading results from file ${batch.output_file_id}...`);
-    jsonlText = await downloadOutputFile(apiKey, batch.output_file_id);
   }
 
-  const results = parseBatchResultsJsonl(jsonlText);
+  // Download and merge results from completed chunks
+  const allResults = [];
+  for (const chunk of chunkStatuses) {
+    if (chunk.api_status !== "completed" || !chunk.output_file_id) continue;
+    console.log(`Downloading chunk ${chunk.chunk_index + 1} results...`);
+    const jsonlText = await downloadOutputFile(apiKey, chunk.output_file_id);
+    const results = parseBatchResultsJsonl(jsonlText);
 
-  const okCount = results.filter((r) => r.ok).length;
-  const failCount = results.filter((r) => !r.ok).length;
-  console.log(`Parsed ${results.length} results: ${okCount} ok, ${failCount} failed`);
+    // Calculate cost for this chunk
+    const model = results.find((r) => r.ok)?.model || "gpt-5.4";
+    const costItems = results.filter((r) => r.ok && r.usage).map((r) => calculateOpenAiUsageCost({ model: r.model || model, usage: r.usage, batchMode: true }));
+    const chunkCost = summarizeOpenAiCosts(costItems);
+    totalCostUsd += chunkCost.estimated_cost_usd.total;
+    console.log(`  ${results.filter((r) => r.ok).length} ok, ${results.filter((r) => !r.ok).length} failed — chunk cost: $${chunkCost.estimated_cost_usd.total.toFixed(4)}`);
 
-  // Detect model from first successful result
-  const firstOk = results.find((r) => r.ok);
-  if (firstOk) {
-    model = firstOk.model;
+    allResults.push(...results);
   }
 
-  // Compute cost summary (batch mode = 50% discount)
-  const costItems = results
-    .filter((r) => r.ok && r.usage)
-    .map((r) => calculateOpenAiUsageCost({ model: r.model || model, usage: r.usage, batchMode: true }));
-  const costSummary = summarizeOpenAiCosts(costItems);
+  const okCount = allResults.filter((r) => r.ok).length;
+  const failCount = allResults.filter((r) => !r.ok).length;
+  console.log(`\nTotal: ${allResults.length} results — ${okCount} ok, ${failCount} failed`);
+  console.log(`Total cost: $${totalCostUsd.toFixed(4)}`);
 
-  if (costSummary.estimated_cost_usd.total > 0) {
-    console.log(`Batch cost estimate (50% discount applied): $${costSummary.estimated_cost_usd.total.toFixed(4)}`);
-  }
-
-  // Resolve output path: --out flag, or same directory as tracker
+  const model = allResults.find((r) => r.ok)?.model || null;
   const path = await import("path");
   const outPath = out || path.default.join(path.default.dirname(tracker), "openai-analyses.json");
 
   await writeJson(outPath, {
     generated_at: new Date().toISOString(),
     model,
-    batch_id: batchId || null,
     batch_mode: true,
+    chunk_count: chunkStatuses.filter((c) => c.api_status === "completed").length,
     billing: {
-      actual_usage_summary: costSummary
+      total_cost_usd: Number(totalCostUsd.toFixed(6)),
+      actual_usage_summary: summarizeOpenAiCosts(
+        allResults.filter((r) => r.ok && r.usage).map((r) => calculateOpenAiUsageCost({ model: r.model || model, usage: r.usage, batchMode: true }))
+      )
     },
-    results
+    results: allResults
   });
+  console.log(`Wrote analyses to ${outPath}`);
+}
 
+async function importSingleBatch({ batchId, resultsJsonl, out, keyEnv, status, tracker }) {
+  let jsonlText;
+
+  if (resultsJsonl) {
+    if (!(await fileExists(resultsJsonl))) throw new Error(`Results JSONL not found: ${resultsJsonl}`);
+    jsonlText = await readFile(resultsJsonl, "utf8");
+  } else {
+    const apiKey = process.env[keyEnv];
+    if (!apiKey) throw new Error(`Missing ${keyEnv}`);
+    const batch = await fetchBatchStatus(apiKey, batchId);
+    console.log(`Batch: ${batch.id} — ${batch.status}`);
+    if (batch.request_counts) console.log(`Requests: ${batch.request_counts.completed}/${batch.request_counts.total}`);
+    if (status) return;
+    if (batch.status !== "completed") {
+      console.log(batch.status === "failed" ? "Batch failed." : "Still processing.");
+      return;
+    }
+    jsonlText = await downloadOutputFile(apiKey, batch.output_file_id);
+  }
+
+  const results = parseBatchResultsJsonl(jsonlText);
+  const model = results.find((r) => r.ok)?.model || null;
+  const costItems = results.filter((r) => r.ok && r.usage).map((r) => calculateOpenAiUsageCost({ model: r.model || model, usage: r.usage, batchMode: true }));
+  const costSummary = summarizeOpenAiCosts(costItems);
+  console.log(`${results.filter((r) => r.ok).length} ok, ${results.filter((r) => !r.ok).length} failed — cost: $${costSummary.estimated_cost_usd.total.toFixed(4)}`);
+
+  const path = await import("path");
+  const outPath = out || path.default.join(path.default.dirname(tracker), "openai-analyses.json");
+  await writeJson(outPath, { generated_at: new Date().toISOString(), model, batch_mode: true, billing: { actual_usage_summary: costSummary }, results });
   console.log(`Wrote analyses to ${outPath}`);
 }
 
@@ -256,8 +232,5 @@ async function main() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
-    console.error(error.message);
-    process.exit(1);
-  });
+  main().catch((err) => { console.error(err.message); process.exit(1); });
 }

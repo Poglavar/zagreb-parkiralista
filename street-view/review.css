@@ -215,8 +215,9 @@ button:hover,
 .chip-footline {
   display: flex;
   justify-content: space-between;
-  gap: 0.6rem;
+  gap: 0.4rem;
   align-items: baseline;
+  overflow: hidden;
 }
 
 .chip-footline {
@@ -229,9 +230,18 @@ button:hover,
   align-items: center;
   border-radius: 999px;
   padding: 0.2rem 0.55rem;
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   background: rgba(18, 32, 51, 0.08);
   color: var(--ink);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.chip-topline strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .chip-badge.reviewed {
@@ -311,6 +321,33 @@ button:hover,
   );
   text-align: center;
   color: var(--muted);
+}
+
+.capture-media {
+  position: relative;
+}
+
+.capture-overlay {
+  position: absolute;
+  top: 0.4rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.capture-overlay-left { left: 0.4rem; }
+.capture-overlay-right { right: 0.4rem; }
+
+.capture-overlay.side-left {
+  background: rgba(245, 158, 11, 0.75);
+  color: #fff;
+}
+
+.capture-overlay.side-right {
+  background: rgba(59, 130, 246, 0.75);
+  color: #fff;
 }
 
 .capture-meta {
