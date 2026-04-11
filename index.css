@@ -494,7 +494,7 @@ html, body {
 .popup-table td { padding: 2px 0; }
 .popup-table a { color: #2563eb; }
 
-.popup-review-link {
+a.popup-review-link {
   display: inline-block;
   margin-top: 6px;
   font-size: 11px;
