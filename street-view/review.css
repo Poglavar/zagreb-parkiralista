@@ -688,6 +688,16 @@ button:hover,
   background: #fde68a;
 }
 
+.btn-delete {
+  background: #fee2e2;
+  border-color: #b91c1c;
+  color: #b91c1c;
+}
+
+.btn-delete:hover {
+  background: #fecaca;
+}
+
 .btn-undo {
   background: var(--paper);
   border-color: var(--muted);
@@ -768,6 +778,11 @@ fieldset {
 .side-fieldset-right {
   background: rgba(59, 130, 246, 0.1);
   border-color: rgba(59, 130, 246, 0.35);
+}
+
+.side-fieldset-manual {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(22, 101, 52, 0.35);
 }
 
 legend {
