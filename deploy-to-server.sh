@@ -60,12 +60,14 @@ echo "Deploying street-view review UI…"
 ${SSH_CMD} "
     mkdir -p ${WEB_ROOT}/unos/scripts/lib
     mkdir -p ${WEB_ROOT}/unos/out/images
+    mkdir -p ${WEB_ROOT}/unos/data/osm
 
     cp ${REPO_PATH}/street-view/review.html ${WEB_ROOT}/unos/review.html
     cp ${REPO_PATH}/street-view/review.css  ${WEB_ROOT}/unos/review.css
     cp ${REPO_PATH}/street-view/review.js   ${WEB_ROOT}/unos/review.js
 
     cp ${REPO_PATH}/street-view/scripts/lib/*.mjs ${WEB_ROOT}/unos/scripts/lib/
+    cp ${REPO_PATH}/street-view/data/osm/parking_zagreb.geojson ${WEB_ROOT}/unos/data/osm/parking_zagreb.geojson
 
     cp ${REPO_PATH}/street-view/out/review-bundle-catalog.json ${WEB_ROOT}/unos/out/review-bundle-catalog.json || true
     cp ${REPO_PATH}/street-view/out/*-review-bundle.json       ${WEB_ROOT}/unos/out/ || true
