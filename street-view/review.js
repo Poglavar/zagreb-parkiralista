@@ -420,11 +420,14 @@ function leafletColorForSide(side) {
 }
 
 function bgColorForSegment(seg, side) {
+  const sideData = seg.sides?.[side];
   const isSuspect = seg.review_status === "suspect";
   const isConfirmed = seg.review_status === "confirmed";
+  const isInactive = sideData?.inactive;
+  if (isInactive) return { color: "#94a3b8", fill: "#e2e8f0", fillOpacity: 0.15, dashArray: null };
   const color = isSuspect ? "#991b1b" : isConfirmed ? "#166534" : (side === "left" ? "#9a3412" : "#1d4ed8");
   const fill = isSuspect ? "#ef4444" : isConfirmed ? "#22c55e" : (side === "left" ? "#f59e0b" : "#3b82f6");
-  const fillOpacity = isConfirmed ? 0.25 : isSuspect ? 0.3 : 0.3;
+  const fillOpacity = isConfirmed ? 0.25 : 0.3;
   return { color, fill, fillOpacity, dashArray: isSuspect ? "4 3" : null };
 }
 
@@ -518,7 +521,8 @@ function createEdgeHandle(side, edge, ring, parentMap) {
   return marker;
 }
 
-function selectionColorForStatus(status, side) {
+function selectionColorForStatus(status, side, inactive) {
+  if (inactive) return { stroke: "#94a3b8", fill: "#e2e8f0" };
   if (status === "confirmed") return { stroke: "#166534", fill: "#22c55e" };
   if (status === "suspect") return { stroke: "#991b1b", fill: "#ef4444" };
   return leafletColorForSide(side);
@@ -555,9 +559,9 @@ function buildDividerLines(ring, manner) {
   return lines;
 }
 
-function addPolygonToLayer(ring, sideKey, active, layer, status, manner) {
+function addPolygonToLayer(ring, sideKey, active, layer, status, manner, inactive) {
   if (!ring || ring.length < 4) return null;
-  const c = status ? selectionColorForStatus(status, sideKey) : leafletColorForSide(sideKey);
+  const c = inactive ? selectionColorForStatus(null, sideKey, true) : status ? selectionColorForStatus(status, sideKey) : leafletColorForSide(sideKey);
   const poly = window.L.polygon(toLatLngPath(ring), { color: c.stroke, weight: active ? 3 : 2, fillColor: c.fill, fillOpacity: active ? 0.32 : 0.12 });
   poly.addTo(layer);
 
@@ -689,11 +693,25 @@ function renderSelection(segment) {
 
   for (const side of ["left", "right"]) {
     const sideA = side === "left" ? assessment?.segment_left : assessment?.segment_right;
-    if (!sideA?.parking_present) continue;
-    const rings = effectivePolygonRings(segment, assessment, side);
+    const sideData = segment.sides?.[side];
+    const inactive = sideData?.inactive === true;
+    const active = Boolean(sideA?.parking_present) && !inactive;
 
+    // Draw inactive sides as grey (confirmed no-parking)
+    if (inactive && sideData?.polygon) {
+      const rings = sideData.polygon.coordinates.map((r) => r);
+      for (const ring of rings) {
+        addPolygonToLayer(ring, side, false, mc.overlayLayer, null, null, true);
+        addPolygonToLayer(ring, side, false, mc.satelliteOverlay, null, null, true);
+      }
+      continue;
+    }
+
+    if (!active) continue;
+    const rings = effectivePolygonRings(segment, assessment, side);
     const status = segment.review_status;
     const manner = sideA?.parking_manner || "parallel";
+
     rings.forEach((ring, ri) => {
       const osmP = addPolygonToLayer(ring, side, true, mc.overlayLayer, status, manner);
       const satP = addPolygonToLayer(ring, side, true, mc.satelliteOverlay, status, manner);
@@ -805,57 +823,73 @@ async function saveReview(reviewStatus, suspectReason = null) {
   const polyOverrides = state.formPreview?.polygonOverrides || null;
   state.formPreview = null;
 
-  const polygons = activeParkingPolygons(
+  // Build list of sides to save: active polygons + deactivated sides
+  const activePolygons = activeParkingPolygons(
     { ...segment, preview_polygons: {} },
     assessment,
     (seg, assess, side) => polyOverrides?.[side] || effectivePolygonCoords(segment, assess, side)
   );
 
+  const saveSides = [];
+  for (const polygon of activePolygons) {
+    const sa = polygon.side === "left" ? assessment.segment_left : assessment.segment_right;
+    saveSides.push({ side: polygon.side, geom: { type: "Polygon", coordinates: [polygon.ring] }, sa, active: true });
+  }
+
+  // For sides that were unchecked but have existing geometry, save as inactive
+  const activeSideNames = new Set(activePolygons.map((p) => p.side));
+  for (const side of ["left", "right"]) {
+    if (activeSideNames.has(side)) continue;
+    const existing = segment.sides?.[side];
+    if (existing?.polygon) {
+      const sa = side === "left" ? assessment.segment_left : assessment.segment_right;
+      saveSides.push({ side, geom: existing.polygon, sa, active: false });
+    }
+  }
+
   els.acceptAiButton.disabled = true;
   els.suspectButton.disabled = true;
   let apiOk = true;
 
-  for (const polygon of polygons) {
-    const sa = polygon.side === "left" ? assessment.segment_left : assessment.segment_right;
+  for (const { side, geom, sa, active } of saveSides) {
     try {
       const resp = await fetch(`${PARKING_API_BASE}/areas`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           segment_id: String(segment.segment_id),
-          side: polygon.side,
-          geom: { type: "Polygon", coordinates: [polygon.ring] },
+          side,
+          geom,
           tags: { parking_manner: sa.parking_manner, parking_level: sa.parking_level, formality: sa.formality, label: segment.label },
           confidence: sa.confidence,
           review_status: reviewStatus,
           suspect_reason: suspectReason,
-          active: true,
+          active,
           updated_by: "street-view-reviewer"
         })
       });
-      if (!resp.ok) { console.error(`API save failed ${segment.segment_id}/${polygon.side}:`, await resp.text()); apiOk = false; }
-      else console.log(`Saved ${segment.segment_id}/${polygon.side} [${reviewStatus}]`);
-    } catch (err) { console.error(`API error ${segment.segment_id}/${polygon.side}:`, err.message); apiOk = false; }
+      if (!resp.ok) { console.error(`API save failed ${segment.segment_id}/${side}:`, await resp.text()); apiOk = false; }
+      else console.log(`Saved ${segment.segment_id}/${side} [${reviewStatus}] active=${active}`);
+    } catch (err) { console.error(`API error ${segment.segment_id}/${side}:`, err.message); apiOk = false; }
   }
 
   els.acceptAiButton.disabled = false;
   els.suspectButton.disabled = false;
 
-  // Update local state to reflect new status and polygon geometry
+  // Update local state
   segment.review_status = reviewStatus;
-  for (const polygon of polygons) {
-    if (!segment.sides[polygon.side]) {
-      segment.sides[polygon.side] = {};
+  for (const { side, geom, sa, active } of saveSides) {
+    if (!segment.sides[side]) segment.sides[side] = {};
+    if (active) {
+      segment.sides[side].polygon = geom;
     }
-    segment.sides[polygon.side].polygon = { type: "Polygon", coordinates: [polygon.ring] };
-    segment.sides[polygon.side].review_status = reviewStatus;
-    segment.sides[polygon.side].tags = {
-      parking_manner: (polygon.side === "left" ? assessment.segment_left : assessment.segment_right).parking_manner,
-      parking_level: (polygon.side === "left" ? assessment.segment_left : assessment.segment_right).parking_level,
-      formality: (polygon.side === "left" ? assessment.segment_left : assessment.segment_right).formality,
-      label: segment.label
-    };
-    segment.sides[polygon.side].confidence = (polygon.side === "left" ? assessment.segment_left : assessment.segment_right).confidence;
+    segment.sides[side].review_status = reviewStatus;
+    segment.sides[side].tags = { parking_manner: sa.parking_manner, parking_level: sa.parking_level, formality: sa.formality, label: segment.label };
+    segment.sides[side].confidence = sa.confidence;
+    // Mark side as inactive but keep geometry for grey background rendering
+    if (!active) {
+      segment.sides[side] = { ...segment.sides[side], polygon: geom, inactive: true, review_status: reviewStatus };
+    }
   }
 
   if (!apiOk) setOsmStatus("Spremanje na API nije uspjelo — provjerite konzolu.", "needs-attention");
