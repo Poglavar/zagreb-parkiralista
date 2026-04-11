@@ -27,94 +27,93 @@
       <a href="../" class="viewer-link">Karta</a>
     </header>
 
-    <main class="layout">
-      <section class="viewer-column">
-        <div class="card">
+    <main class="layout-two-col">
+      <div class="col-map">
+        <div class="card map-card">
           <div id="segmentMeta" class="meta-grid"></div>
-          <div class="dual-map-shell">
-            <div id="diagramShell" class="diagram-shell">
-              <div id="segmentMap" class="segment-map" aria-label="OSM karta segmenta"></div>
-            </div>
-            <div class="diagram-shell">
-              <div id="satelliteMap" class="segment-map" aria-label="Satelitska karta segmenta"></div>
-            </div>
+          <div class="map-container">
+            <div id="segmentMap" class="segment-map" aria-label="Satelitska karta"></div>
+            <div id="satelliteMap" class="segment-map" aria-label="OSM karta" hidden></div>
           </div>
-
-          <div class="controls-row">
-            <form id="overrideForm" class="assessment-form">
-              <fieldset class="side-fieldset side-fieldset-left">
-                <legend>Lijeva strana <button type="button" class="ai-reason-btn" id="leftReasonBtn" title="AI obrazloženje">🧠</button></legend>
-                <div class="side-summary-row">
-                  <label class="check-label"><input id="leftPresentField" type="checkbox" /> Parkiranje</label>
-                  <select id="leftMannerField">
-                    <option value="none">nema</option>
-                    <option value="parallel">uzdužno</option>
-                    <option value="perpendicular">okomito</option>
-                    <option value="diagonal">koso</option>
-                    <option value="mixed">mješovito</option>
-                    <option value="unknown">nepoznato</option>
-                  </select>
-                  <select id="leftLevelField">
-                    <option value="road_level">kolnik</option>
-                    <option value="sidewalk">pločnik</option>
-                    <option value="gravel_shoulder">bankina</option>
-                    <option value="mixed">mješovito</option>
-                    <option value="unknown">nepoznato</option>
-                  </select>
-                  <select id="leftFormalityField">
-                    <option value="formal">službeno</option>
-                    <option value="informal">neslužbeno</option>
-                    <option value="mixed">mješovito</option>
-                    <option value="unknown">nepoznato</option>
-                  </select>
-                  <span class="confidence-display muted" id="leftConfidenceDisplay"></span>
-                </div>
-                <input id="leftConfidenceField" type="hidden" />
-              </fieldset>
-              <fieldset class="side-fieldset side-fieldset-right">
-                <legend>Desna strana <button type="button" class="ai-reason-btn" id="rightReasonBtn" title="AI obrazloženje">🧠</button></legend>
-                <div class="side-summary-row">
-                  <label class="check-label"><input id="rightPresentField" type="checkbox" /> Parkiranje</label>
-                  <select id="rightMannerField">
-                    <option value="none">nema</option>
-                    <option value="parallel">uzdužno</option>
-                    <option value="perpendicular">okomito</option>
-                    <option value="diagonal">koso</option>
-                    <option value="mixed">mješovito</option>
-                    <option value="unknown">nepoznato</option>
-                  </select>
-                  <select id="rightLevelField">
-                    <option value="road_level">kolnik</option>
-                    <option value="sidewalk">pločnik</option>
-                    <option value="gravel_shoulder">bankina</option>
-                    <option value="mixed">mješovito</option>
-                    <option value="unknown">nepoznato</option>
-                  </select>
-                  <select id="rightFormalityField">
-                    <option value="formal">službeno</option>
-                    <option value="informal">neslužbeno</option>
-                    <option value="mixed">mješovito</option>
-                    <option value="unknown">nepoznato</option>
-                  </select>
-                  <span class="confidence-display muted" id="rightConfidenceDisplay"></span>
-                </div>
-                <input id="rightConfidenceField" type="hidden" />
-              </fieldset>
-              <input id="decisionField" type="hidden" />
-              <input id="confidenceField" type="hidden" />
-              <input id="reviewerNotesField" type="hidden" />
-            </form>
-            <div class="action-grid">
-              <button id="prevButton" type="button">&lsaquo; Prethodni</button>
-              <button id="acceptAiButton" type="button" class="btn-confirm">Potvrdi</button>
-              <button id="nextButton" type="button">Sljedeći &rsaquo;</button>
-              <button id="suspectButton" type="button">Sumnjivo</button>
-            </div>
-          </div>
-          <div id="osmSubmitStatus" class="summary-block muted"></div>
           <div id="captureGrid" class="capture-grid"></div>
         </div>
-      </section>
+      </div>
+
+      <div class="col-controls">
+        <div class="card controls-card">
+          <button id="mapToggleBtn" type="button" class="map-toggle-btn">OSM karta</button>
+
+          <form id="overrideForm" class="assessment-form">
+            <fieldset class="side-fieldset side-fieldset-left">
+              <legend>Lijeva strana <button type="button" class="ai-reason-btn" id="leftReasonBtn" title="AI obrazloženje">🧠</button> <span class="legend-conf" id="leftConfidenceDisplay"></span></legend>
+              <div class="side-summary-row">
+                <label class="check-label"><input id="leftPresentField" type="checkbox" /> Parkiranje</label>
+                <select id="leftMannerField">
+                  <option value="none">nema</option>
+                  <option value="parallel">uzdužno</option>
+                  <option value="perpendicular">okomito</option>
+                  <option value="diagonal">koso</option>
+                  <option value="mixed">mješovito</option>
+                  <option value="unknown">nepoznato</option>
+                </select>
+                <select id="leftLevelField">
+                  <option value="road_level">kolnik</option>
+                  <option value="sidewalk">pločnik</option>
+                  <option value="gravel_shoulder">bankina</option>
+                  <option value="mixed">mješovito</option>
+                  <option value="unknown">nepoznato</option>
+                </select>
+                <select id="leftFormalityField">
+                  <option value="formal">službeno</option>
+                  <option value="informal">neslužbeno</option>
+                  <option value="mixed">mješovito</option>
+                  <option value="unknown">nepoznato</option>
+                </select>
+              </div>
+              <input id="leftConfidenceField" type="hidden" />
+            </fieldset>
+            <fieldset class="side-fieldset side-fieldset-right">
+              <legend>Desna strana <button type="button" class="ai-reason-btn" id="rightReasonBtn" title="AI obrazloženje">🧠</button> <span class="legend-conf" id="rightConfidenceDisplay"></span></legend>
+              <div class="side-summary-row">
+                <label class="check-label"><input id="rightPresentField" type="checkbox" /> Parkiranje</label>
+                <select id="rightMannerField">
+                  <option value="none">nema</option>
+                  <option value="parallel">uzdužno</option>
+                  <option value="perpendicular">okomito</option>
+                  <option value="diagonal">koso</option>
+                  <option value="mixed">mješovito</option>
+                  <option value="unknown">nepoznato</option>
+                </select>
+                <select id="rightLevelField">
+                  <option value="road_level">kolnik</option>
+                  <option value="sidewalk">pločnik</option>
+                  <option value="gravel_shoulder">bankina</option>
+                  <option value="mixed">mješovito</option>
+                  <option value="unknown">nepoznato</option>
+                </select>
+                <select id="rightFormalityField">
+                  <option value="formal">službeno</option>
+                  <option value="informal">neslužbeno</option>
+                  <option value="mixed">mješovito</option>
+                  <option value="unknown">nepoznato</option>
+                </select>
+              </div>
+              <input id="rightConfidenceField" type="hidden" />
+            </fieldset>
+            <input id="decisionField" type="hidden" />
+            <input id="confidenceField" type="hidden" />
+            <input id="reviewerNotesField" type="hidden" />
+          </form>
+
+          <div class="action-grid">
+            <button id="acceptAiButton" type="button" class="btn-confirm">Potvrdi</button>
+            <button id="suspectButton" type="button">Sumnjivo</button>
+            <button id="prevButton" type="button">&lsaquo; Prethodni</button>
+            <button id="nextButton" type="button">Sljedeći &rsaquo;</button>
+          </div>
+          <p id="osmSubmitStatus" class="status-line muted"></p>
+        </div>
+      </div>
     </main>
 
     <div id="aiReasonModal" class="modal-overlay" hidden>

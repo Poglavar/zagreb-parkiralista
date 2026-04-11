@@ -144,11 +144,12 @@ button:hover,
   margin: 0;
 }
 
-.layout {
+.layout-two-col {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 340px;
   gap: 1rem;
   padding: 1rem 1.5rem 1.5rem;
+  align-items: start;
 }
 
 .card {
@@ -291,6 +292,15 @@ button:hover,
   color: var(--ink);
 }
 
+.status-line {
+  margin: 0.4rem 0 0;
+  font-size: 0.82rem;
+}
+
+.status-line.needs-attention {
+  color: var(--accent);
+}
+
 .summary-block .summary-title {
   display: block;
   font-size: 0.76rem;
@@ -377,13 +387,7 @@ button:hover,
   margin: 0.15rem 0;
 }
 
-.dual-map-shell {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem;
-}
-
-.diagram-shell {
+.map-container {
   position: relative;
   border-radius: 18px;
   overflow: hidden;
@@ -394,6 +398,20 @@ button:hover,
 .segment-map {
   width: 100%;
   aspect-ratio: 1 / 1;
+}
+
+.segment-map[hidden] {
+  display: none;
+}
+
+.map-toggle-btn {
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+
+.controls-card {
+  position: sticky;
+  top: 1rem;
 }
 
 .diagram {
@@ -512,23 +530,16 @@ button:hover,
   color: var(--accent);
 }
 
-.controls-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.8rem;
-  margin-top: 0.8rem;
-}
-
 .assessment-form {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  margin-bottom: 0.5rem;
 }
 
 .action-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
   gap: 0.4rem;
 }
 
@@ -537,10 +548,9 @@ button:hover,
 }
 
 .side-summary-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
 }
 
 .side-summary-row select {
@@ -582,10 +592,6 @@ button:hover,
   padding-left: 1.2rem;
 }
 
-.confidence-display {
-  font-size: 0.85rem;
-  white-space: nowrap;
-}
 
 .evidence-details {
   margin-top: 0.5rem;
@@ -701,6 +707,15 @@ fieldset {
 legend {
   padding: 0 0.4rem;
   color: var(--muted);
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.legend-conf {
+  margin-left: auto;
+  font-size: inherit;
+  color: var(--muted);
 }
 
 label {
@@ -753,8 +768,12 @@ input[type="checkbox"] {
     flex-wrap: wrap;
   }
 
-  .dual-map-shell {
+  .layout-two-col {
     grid-template-columns: 1fr;
+  }
+
+  .controls-card {
+    position: static;
   }
 
   .layout {

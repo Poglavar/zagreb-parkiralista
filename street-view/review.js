@@ -1,5 +1,7 @@
 // Reviewer for parking area polygons. Loads data from the parking API, not from local JSON bundles.
 import { activeParkingPolygons } from "./scripts/lib/osm-submit.mjs";
+import { buildParkingSidePolygons, bandWidthForManner } from "./scripts/lib/parking.mjs";
+import { interpolateAlongPolyline, polylineLengthMeters } from "./scripts/lib/geo.mjs";
 import { chooseParkingPolygonKeys, toLatLngPath } from "./scripts/lib/review-map.mjs";
 
 const PARKING_API_BASE = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
@@ -54,7 +56,7 @@ function formatNumber(value, fractionDigits = 1) {
 }
 
 function setOsmStatus(html, tone = "muted") {
-  els.osmSubmitStatus.className = `summary-block ${tone}`;
+  els.osmSubmitStatus.className = `status-line ${tone}`;
   els.osmSubmitStatus.innerHTML = html;
 }
 
@@ -184,11 +186,28 @@ function segmentPolygonRings(segment, side) {
   return coords.map((ring) => ring);
 }
 
+function recomputePolygonRings(segment, side, sideAssessment) {
+  if (!segment?.geometry?.coordinates || !sideAssessment?.parking_present) return [];
+  return buildParkingSidePolygons(segment.geometry.coordinates, {
+    side,
+    roadWidthM: segment.width_m || 7,
+    parkingLevel: sideAssessment.parking_level,
+    parkingManner: sideAssessment.parking_manner,
+    endSetbackM: 3
+  });
+}
+
 function effectivePolygonRings(segment, assessment, side) {
   const overrides = state.formPreview?.segmentId === segment?.segment_id ? state.formPreview.polygonOverrides : null;
   if (overrides?.[side]) {
     const o = overrides[side];
     return Array.isArray(o[0]?.[0]) ? o : [o];
+  }
+  // If form preview is active, recompute from the current form values
+  if (state.formPreview?.segmentId === segment?.segment_id && assessment) {
+    const sa = side === "left" ? assessment.segment_left : assessment.segment_right;
+    const recomputed = recomputePolygonRings(segment, side, sa);
+    if (recomputed.length > 0) return recomputed;
   }
   return segmentPolygonRings(segment, side);
 }
@@ -291,8 +310,8 @@ function updateConfirmButton(segment) {
 function updateFormPreview() {
   const segment = currentSegment();
   if (!segment || state.isPopulatingForm) return;
-  const preview = ensurePreviewState(segment);
-  state.formPreview = { segmentId: segment.segment_id, assessment: formAssessment(), polygonOverrides: { ...(preview?.polygonOverrides || {}) } };
+  // Clear polygon overrides so polygons are recomputed from the new form values
+  state.formPreview = { segmentId: segment.segment_id, assessment: formAssessment(), polygonOverrides: {} };
   updateConfirmButton(segment);
   renderSelection(segment);
 }
@@ -403,9 +422,9 @@ function leafletColorForSide(side) {
 function bgColorForSegment(seg, side) {
   const isSuspect = seg.review_status === "suspect";
   const isConfirmed = seg.review_status === "confirmed";
-  const color = isSuspect ? "#b45309" : isConfirmed ? "#64748b" : (side === "left" ? "#9a3412" : "#1d4ed8");
-  const fill = isSuspect ? "#fbbf24" : isConfirmed ? "#cbd5e1" : (side === "left" ? "#f59e0b" : "#3b82f6");
-  const fillOpacity = isConfirmed ? 0.25 : 0.3;
+  const color = isSuspect ? "#991b1b" : isConfirmed ? "#166534" : (side === "left" ? "#9a3412" : "#1d4ed8");
+  const fill = isSuspect ? "#ef4444" : isConfirmed ? "#22c55e" : (side === "left" ? "#f59e0b" : "#3b82f6");
+  const fillOpacity = isConfirmed ? 0.25 : isSuspect ? 0.3 : 0.3;
   return { color, fill, fillOpacity, dashArray: isSuspect ? "4 3" : null };
 }
 
@@ -461,6 +480,9 @@ function stopMapDrag() {
   if (drag?.sourceMap) { drag.sourceMap.dragging.enable(); drag.sourceMap.off("mousemove", onMapDragMove); drag.sourceMap.off("mouseup", stopMapDrag); }
   window.removeEventListener("mouseup", stopMapDrag);
   state.map.dragState = null;
+  // Re-render to update divider lines after drag
+  const segment = currentSegment();
+  if (segment) { state.suppressMapFly = true; renderSelection(segment); }
 }
 
 function onMapDragMove(event) {
@@ -488,15 +510,65 @@ function createEdgeHandle(side, edge, ring, parentMap) {
   const ds = { startLatLng: null, originalRing: null };
   marker.on("dragstart", (e) => { ds.startLatLng = e.target.getLatLng(); ds.originalRing = cloneRing(currentRingForSide(side)); parentMap.dragging.disable(); });
   marker.on("drag", (e) => { const c = e.target.getLatLng(); applyEditablePolygonRing(side, movePolygonEdge(ds.originalRing, edge, c.lng - ds.startLatLng.lng, c.lat - ds.startLatLng.lat)); });
-  marker.on("dragend", () => parentMap.dragging.enable());
+  marker.on("dragend", () => {
+    parentMap.dragging.enable();
+    const segment = currentSegment();
+    if (segment) { state.suppressMapFly = true; renderSelection(segment); }
+  });
   return marker;
 }
 
-function addPolygonToLayer(ring, sideKey, active, layer) {
+function selectionColorForStatus(status, side) {
+  if (status === "confirmed") return { stroke: "#166534", fill: "#22c55e" };
+  if (status === "suspect") return { stroke: "#991b1b", fill: "#ef4444" };
+  return leafletColorForSide(side);
+}
+
+// Car spacing along the road edge per manner (meters between divider lines)
+const SPACE_INTERVAL = { parallel: 5.5, perpendicular: 2.5, diagonal: 3.0 };
+const DIAGONAL_OFFSET_FRAC = 0.4; // How much diagonal lines shift on the inner edge
+
+function buildDividerLines(ring, manner) {
+  if (!ring || ring.length < 5) return [];
+  const half = ringHalf(ring);
+  // Outer edge: ring[0..half-1], inner edge: ring[half..2*half-1] (reversed relative to outer)
+  const outer = ring.slice(0, half);
+  const inner = ring.slice(half, half * 2).reverse();
+  if (outer.length < 2 || inner.length < 2) return [];
+
+  const outerLen = polylineLengthMeters(outer);
+  const interval = SPACE_INTERVAL[manner] || SPACE_INTERVAL.parallel;
+  if (outerLen < interval) return [];
+
+  const isDiagonal = manner === "diagonal";
+  const innerLen = polylineLengthMeters(inner);
+  const lines = [];
+
+  for (let d = interval; d < outerLen - 0.5; d += interval) {
+    const outerPt = interpolateAlongPolyline(outer, d).coord;
+    const innerD = isDiagonal
+      ? Math.min(innerLen, d + interval * DIAGONAL_OFFSET_FRAC)
+      : d * (innerLen / outerLen);
+    const innerPt = interpolateAlongPolyline(inner, innerD).coord;
+    lines.push([[outerPt[1], outerPt[0]], [innerPt[1], innerPt[0]]]);
+  }
+  return lines;
+}
+
+function addPolygonToLayer(ring, sideKey, active, layer, status, manner) {
   if (!ring || ring.length < 4) return null;
-  const c = leafletColorForSide(sideKey);
+  const c = status ? selectionColorForStatus(status, sideKey) : leafletColorForSide(sideKey);
   const poly = window.L.polygon(toLatLngPath(ring), { color: c.stroke, weight: active ? 3 : 2, fillColor: c.fill, fillOpacity: active ? 0.32 : 0.12 });
   poly.addTo(layer);
+
+  // Draw space divider lines inside the polygon
+  if (manner && active) {
+    const dividers = buildDividerLines(ring, manner);
+    for (const line of dividers) {
+      window.L.polyline(line, { color: "#000", weight: 1, opacity: 0.7 }).addTo(layer);
+    }
+  }
+
   return poly;
 }
 
@@ -504,11 +576,12 @@ function ensureLeafletMap() {
   if (!window.L) return null;
   if (!state.map.instance) {
     const mapOpts = { zoomControl: true, attributionControl: true, preferCanvas: true, scrollWheelZoom: true, zoomSnap: 0.25, zoomDelta: 0.5 };
+    // segmentMap = satellite (default visible), satelliteMap = OSM (hidden)
     state.map.instance = window.L.map(els.segmentMap, mapOpts);
-    state.map.tileLayer = window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 22, maxNativeZoom: 19, attribution: "&copy; OSM" }).addTo(state.map.instance);
+    window.L.tileLayer.wms(CDOF_WMS_URL, { layers: "ZG_CDOF2022", format: "image/jpeg", version: "1.1.1", transparent: false, maxZoom: 22, attribution: "CDOF 2022 &copy; Grad Zagreb" }).addTo(state.map.instance);
 
     state.map.satellite = window.L.map(els.satelliteMap, { ...mapOpts, zoomControl: false });
-    window.L.tileLayer.wms(CDOF_WMS_URL, { layers: "ZG_CDOF2022", format: "image/jpeg", version: "1.1.1", transparent: false, maxZoom: 22, attribution: "CDOF 2022 &copy; Grad Zagreb" }).addTo(state.map.satellite);
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 22, maxNativeZoom: 19, attribution: "&copy; OSM" }).addTo(state.map.satellite);
 
     // Layers: background (all polygons) + selection (current segment details)
     state.map.bgLayer = window.L.featureGroup().addTo(state.map.instance);
@@ -619,9 +692,11 @@ function renderSelection(segment) {
     if (!sideA?.parking_present) continue;
     const rings = effectivePolygonRings(segment, assessment, side);
 
+    const status = segment.review_status;
+    const manner = sideA?.parking_manner || "parallel";
     rings.forEach((ring, ri) => {
-      const osmP = addPolygonToLayer(ring, side, true, mc.overlayLayer);
-      const satP = addPolygonToLayer(ring, side, true, mc.satelliteOverlay);
+      const osmP = addPolygonToLayer(ring, side, true, mc.overlayLayer, status, manner);
+      const satP = addPolygonToLayer(ring, side, true, mc.satelliteOverlay, status, manner);
 
       if (osmP && satP && ri === 0) {
         const entry = { layers: [osmP, satP], handleSets: [] };
@@ -870,6 +945,18 @@ async function init() {
 
   document.getElementById("leftReasonBtn").addEventListener("click", () => showAiReason("left"));
   document.getElementById("rightReasonBtn").addEventListener("click", () => showAiReason("right"));
+
+  // Map toggle: switch between satellite (default) and OSM
+  const mapToggleBtn = document.getElementById("mapToggleBtn");
+  let showingOsm = false;
+  mapToggleBtn.addEventListener("click", () => {
+    showingOsm = !showingOsm;
+    els.segmentMap.hidden = showingOsm;
+    els.satelliteMap.hidden = !showingOsm;
+    mapToggleBtn.textContent = showingOsm ? "Satelit" : "OSM karta";
+    const visibleMap = showingOsm ? state.map.satellite : state.map.instance;
+    visibleMap.invalidateSize();
+  });
 }
 
 init().catch((err) => {
