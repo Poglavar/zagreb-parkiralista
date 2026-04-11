@@ -64,9 +64,7 @@ ${SSH_CMD} "
     cp ${REPO_PATH}/street-view/review.css  ${WEB_ROOT}/unos/review.css
     cp ${REPO_PATH}/street-view/review.js   ${WEB_ROOT}/unos/review.js
 
-    cp ${REPO_PATH}/street-view/scripts/lib/osm-submit.mjs    ${WEB_ROOT}/unos/scripts/lib/osm-submit.mjs
-    cp ${REPO_PATH}/street-view/scripts/lib/review-map.mjs     ${WEB_ROOT}/unos/scripts/lib/review-map.mjs
-    cp ${REPO_PATH}/street-view/scripts/lib/review-bundle-catalog.mjs ${WEB_ROOT}/unos/scripts/lib/review-bundle-catalog.mjs
+    cp ${REPO_PATH}/street-view/scripts/lib/*.mjs ${WEB_ROOT}/unos/scripts/lib/
 
     cp ${REPO_PATH}/street-view/out/review-bundle-catalog.json ${WEB_ROOT}/unos/out/review-bundle-catalog.json || true
     cp ${REPO_PATH}/street-view/out/*-review-bundle.json       ${WEB_ROOT}/unos/out/ || true
