@@ -14,6 +14,7 @@ function parseArgs(argv) {
     provider: "openai",
     model: null,
     batchId: null,
+    segmentSuffix: "",
     dryRun: true
   };
 
@@ -25,6 +26,7 @@ function parseArgs(argv) {
     else if (argv[i] === "--provider") args.provider = argv[++i];
     else if (argv[i] === "--model") args.model = argv[++i];
     else if (argv[i] === "--batch-id") args.batchId = argv[++i];
+    else if (argv[i] === "--segment-suffix") args.segmentSuffix = argv[++i];
     else if (argv[i] === "--write") args.dryRun = false;
     else if (argv[i] === "--help") {
       console.log("Usage: node scripts/ingest-to-db.mjs --candidates path --analyses path [--write] [--provider openai] [--batch-id id]");
@@ -134,7 +136,7 @@ async function main() {
           };
 
           rows.push({
-            segment_id: `${segmentId}${stationSuffix}`,
+            segment_id: `${segmentId}${stationSuffix}${args.segmentSuffix}`,
             side,
             geom,
             tags: JSON.stringify(tags),
@@ -142,7 +144,7 @@ async function main() {
             provider: args.provider,
             model: resolvedModel,
             batch_id: args.batchId,
-            cost_usd: result.cost_usd || null
+            cost_usd: typeof result.cost_usd === "number" ? result.cost_usd : (result.cost_usd?.total || null)
           });
           insertCount += 1;
         }
@@ -171,7 +173,9 @@ async function main() {
       // Upsert source segments
       const segmentIds = [...new Set(rows.map((r) => r.segment_id))];
       for (const segId of segmentIds) {
-        const seg = segmentById.get(segId);
+        // Strip suffix to look up source segment data
+        const sourceId = args.segmentSuffix ? segId.replace(new RegExp(`${args.segmentSuffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), "") : segId;
+        const seg = segmentById.get(sourceId) || segmentById.get(segId);
         if (!seg) continue;
         const captures = (seg.captures || []).map((c) => ({
           capture_id: c.capture_id,

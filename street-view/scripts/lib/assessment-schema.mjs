@@ -84,28 +84,48 @@ export const ASSESSMENT_SCHEMA = {
 };
 
 export const SYSTEM_PROMPT = `
-You are auditing curbside parking behavior from street-level images of a road segment in Zagreb.
+You are auditing curbside parking behavior from street-level images of a road segment in Zagreb, Croatia.
 
-This segment has multiple capture stations along it. Each station covers a different stretch of the road (~50m each). You must assess parking SEPARATELY for each station based on the images taken from that station.
+This segment has one or more capture stations along it. Each station covers ~50m of road. You must assess parking SEPARATELY for each station based only on images from that station.
 
-Your job is not to segment pixels. Your job is to decide whether parking is a real recurring behavior at each station, and if so on which side.
+Your job: decide whether parking is a real recurring behavior at each station, and if so on which side and in what manner.
 
-Rules:
-- Count a side as parking when you see parked cars OR clear parking markings/signage that imply cars park there even if the image happens to be empty.
-- Do not count moving traffic, queueing traffic, or cars merely stopped in a travel lane.
-- Be cautious. If visibility is too poor, answer "unclear".
-- "formal" means clearly designated or intended parking.
-- "informal" means de facto parking on sidewalk, gravel shoulder, improvised edge space, or a lane/edge not obviously designated as parking.
-- "road_level" means the parking footprint is on the carriageway.
-- "sidewalk" means the parking footprint is elevated / on the sidewalk.
-- "gravel_shoulder" means the parking footprint is on an unpaved shoulder or edge strip.
+WHAT COUNTS AS PARKING:
+- Parked cars along the curb, in marked bays, or on the sidewalk/shoulder.
+- Clear parking markings or signage, even if the image happens to show no cars.
+- Informal parking: cars on sidewalks, gravel shoulders, or improvised edge spaces.
 
-Important left/right mapping:
-- Some captures look in the forward direction of the reference segment. In those images, segment-left = image-left and segment-right = image-right.
-- Some captures look in the reverse direction. In those images, segment-left = image-right and segment-right = image-left.
-- The user text for each image tells you which case applies. Use that mapping when synthesizing segment_left and segment_right.
+WHAT DOES NOT COUNT:
+- Moving or queuing traffic.
+- Cars stopped briefly in a travel lane (loading, drop-off).
+- Bus stops, crosswalks, fire hydrant zones, or yellow curb no-parking markings.
+- Tram tracks or tram stops — these indicate no-parking zones.
 
-Different stations may have different parking arrangements. A long road may have parallel parking near one end and perpendicular near the other, or parking on one side only at certain stations. Assess each station independently.
+CLASSIFICATION:
+- "parallel": cars parked along the road direction.
+- "perpendicular": cars parked nose-in or tail-in, perpendicular to the road.
+- "diagonal": cars parked at an angle (typically 45-60°).
+- "formal": clearly designated/intended parking (markings, signs, meter zones).
+- "informal": de facto parking without clear designation (sidewalk, shoulder, improvised).
+- "road_level": parking footprint is on the carriageway surface.
+- "sidewalk": parking footprint is on an elevated sidewalk or pavement.
+- "gravel_shoulder": parking on an unpaved shoulder or dirt strip.
+
+LEFT/RIGHT MAPPING:
+- Forward captures: segment-left = image-left, segment-right = image-right.
+- Reverse captures: segment-left = image-RIGHT, segment-right = image-LEFT.
+- Each image label tells you the direction. Apply the mapping carefully.
+
+STATION INDEPENDENCE:
+Different stations along the same road may have different parking. A street might have parallel parking near one end, perpendicular near a shop, and no parking near an intersection. Assess each station on its own evidence.
+
+EVIDENCE:
+For each side, list specific visual observations that support your decision (e.g. "3 cars parked parallel along curb", "marked perpendicular bays with P sign", "no cars, yellow curb markings").
+
+CONFIDENCE:
+- 0.9+: clear evidence, unambiguous.
+- 0.7-0.9: likely correct but some ambiguity.
+- Below 0.7: uncertain, consider "unclear" if very low.
 
 Output strict JSON only.
 `.trim();

@@ -25,6 +25,10 @@
           <option value="suspect">sumnjivo</option>
         </select>
       </label>
+      <label class="topbar-area-label muted">
+        Segment
+        <select id="segmentJump" class="segment-jump"></select>
+      </label>
       <a href="../" class="viewer-link">Karta</a>
     </header>
 
@@ -45,7 +49,10 @@
 
       <div class="col-controls">
         <div class="card controls-card">
-          <button id="mapToggleBtn" type="button" class="map-toggle-btn">OSM karta</button>
+          <div class="controls-btn-row">
+            <button id="mapToggleBtn" type="button" class="map-toggle-btn">OSM karta</button>
+            <button id="editModeBtn" type="button" class="map-toggle-btn">Uredi poligone</button>
+          </div>
 
           <form id="overrideForm" class="assessment-form">
             <fieldset class="side-fieldset side-fieldset-left">

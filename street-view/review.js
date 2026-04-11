@@ -307,11 +307,20 @@ function updateConfirmButton(segment) {
   els.suspectButton.classList.toggle("btn-suspect-active", isSuspect);
 }
 
-function updateFormPreview() {
+function updateFormPreview(changedSide) {
   const segment = currentSegment();
   if (!segment || state.isPopulatingForm) return;
-  // Clear polygon overrides so polygons are recomputed from the new form values
-  state.formPreview = { segmentId: segment.segment_id, assessment: formAssessment(), polygonOverrides: {} };
+  const prev = state.formPreview?.segmentId === segment.segment_id ? state.formPreview.polygonOverrides || {} : {};
+  // Only clear the override for the side that changed; preserve the other side's drag position
+  const overrides = { ...prev };
+  if (changedSide) {
+    delete overrides[changedSide];
+  } else {
+    // Unknown which side — clear both
+    delete overrides.left;
+    delete overrides.right;
+  }
+  state.formPreview = { segmentId: segment.segment_id, assessment: formAssessment(), polygonOverrides: overrides };
   updateConfirmButton(segment);
   renderSelection(segment);
 }
@@ -775,6 +784,21 @@ function renderSelection(segment) {
 
 // --- Render ---
 
+function populateSegmentDropdown() {
+  const dd = document.getElementById("segmentJump");
+  const currentVal = dd.value;
+  dd.innerHTML = "";
+  state.segments.forEach((seg, i) => {
+    const opt = document.createElement("option");
+    opt.value = i;
+    const sides = Object.keys(seg.sides || {}).join("+") || "—";
+    const statusShort = { pending: "č", confirmed: "p", suspect: "s" }[seg.review_status] || "?";
+    opt.textContent = `#${seg.segment_id} [${statusShort}]`;
+    if (i === state.index) opt.selected = true;
+    dd.appendChild(opt);
+  });
+}
+
 function renderEmptyState() {
   els.segmentMeta.innerHTML = "";
   els.prevButton.disabled = true;
@@ -795,6 +819,7 @@ function render() {
   renderCaptures(segment);
   populateForm(segment);
   updateConfirmButton(segment);
+  populateSegmentDropdown();
   renderSelection(segment);
 
   const pos = visible.indexOf(state.index);
@@ -821,13 +846,26 @@ async function saveReview(reviewStatus, suspectReason = null) {
 
   const assessment = formAssessment();
   const polyOverrides = state.formPreview?.polygonOverrides || null;
+
+  // Recompute polygons from current form values BEFORE clearing preview
+  function resolveRing(seg, assess, side) {
+    if (polyOverrides?.[side]) return polyOverrides[side];
+    // Recompute from geometry + current manner/level
+    const sa = side === "left" ? assess.segment_left : assess.segment_right;
+    if (sa?.parking_present && segment.geometry?.coordinates) {
+      const rings = recomputePolygonRings(segment, side, sa);
+      if (rings.length > 0) return rings[0];
+    }
+    return effectivePolygonCoords(segment, assess, side);
+  }
+
   state.formPreview = null;
 
   // Build list of sides to save: active polygons + deactivated sides
   const activePolygons = activeParkingPolygons(
     { ...segment, preview_polygons: {} },
     assessment,
-    (seg, assess, side) => polyOverrides?.[side] || effectivePolygonCoords(segment, assess, side)
+    resolveRing
   );
 
   const saveSides = [];
@@ -908,7 +946,7 @@ async function init() {
   for (const a of areas) {
     const opt = document.createElement("option");
     opt.value = a.label;
-    opt.textContent = `${a.label} (${a.pending_count}p / ${a.confirmed_count}c / ${a.suspect_count}s)`;
+    opt.textContent = `${a.label} (${a.confirmed_count} potvrđeno, ${a.pending_count} čeka, ${a.suspect_count} sumnjivo)`;
     els.areaSelect.appendChild(opt);
   }
 
@@ -918,6 +956,13 @@ async function init() {
   // Events
   els.areaSelect.addEventListener("change", () => loadArea(els.areaSelect.value));
   els.reviewFilterField.addEventListener("change", () => loadArea(els.areaSelect.value));
+
+  // Segment jump dropdown
+  const segmentJump = document.getElementById("segmentJump");
+  segmentJump.addEventListener("change", () => {
+    const idx = Number(segmentJump.value);
+    if (!isNaN(idx) && idx >= 0 && idx < state.segments.length) selectSegment(idx);
+  });
   els.prevButton.addEventListener("click", () => stepVisible(-1));
   els.nextButton.addEventListener("click", () => stepVisible(1));
   els.acceptAiButton.addEventListener("click", () => saveReview("confirmed"));
@@ -940,12 +985,10 @@ async function init() {
     if (e.key === "Escape") { suspectModal.hidden = true; }
   });
 
-  [els.leftPresentField, els.leftMannerField, els.leftLevelField, els.leftFormalityField,
-   els.rightPresentField, els.rightMannerField, els.rightLevelField, els.rightFormalityField
-  ].forEach((field) => {
-    field.addEventListener("input", updateFormPreview);
-    field.addEventListener("change", updateFormPreview);
-  });
+  const leftFields = [els.leftPresentField, els.leftMannerField, els.leftLevelField, els.leftFormalityField];
+  const rightFields = [els.rightPresentField, els.rightMannerField, els.rightLevelField, els.rightFormalityField];
+  leftFields.forEach((f) => { f.addEventListener("input", () => updateFormPreview("left")); f.addEventListener("change", () => updateFormPreview("left")); });
+  rightFields.forEach((f) => { f.addEventListener("input", () => updateFormPreview("right")); f.addEventListener("change", () => updateFormPreview("right")); });
 
   // AI reasoning popups
   const aiReasonModal = document.getElementById("aiReasonModal");
@@ -993,6 +1036,29 @@ async function init() {
     mapToggleBtn.textContent = showingOsm ? "Satelit" : "OSM karta";
     const visibleMap = showingOsm ? state.map.satellite : state.map.instance;
     visibleMap.invalidateSize();
+  });
+
+  // Edit mode: freeze map for polygon editing on touch devices
+  const editModeBtn = document.getElementById("editModeBtn");
+  let editMode = false;
+  editModeBtn.addEventListener("click", () => {
+    editMode = !editMode;
+    editModeBtn.textContent = editMode ? "Otključaj kartu" : "Uredi poligone";
+    editModeBtn.classList.toggle("edit-mode-active", editMode);
+    for (const m of [state.map.instance, state.map.satellite]) {
+      if (!m) continue;
+      if (editMode) {
+        m.dragging.disable();
+        m.touchZoom.disable();
+        m.scrollWheelZoom.disable();
+        m.doubleClickZoom.disable();
+      } else {
+        m.dragging.enable();
+        m.touchZoom.enable();
+        m.scrollWheelZoom.enable();
+        m.doubleClickZoom.enable();
+      }
+    }
   });
 }
 

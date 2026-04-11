@@ -89,6 +89,15 @@ a.button-link {
 }
 .viewer-link:hover { background: #334155; }
 
+.segment-jump {
+  max-width: 160px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  padding: 0.25rem 0.4rem;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
 .topbar-area-label {
   display: flex;
   align-items: center;
@@ -518,6 +527,37 @@ button:hover,
   border-radius: 2px;
   width: 10px;
   height: 10px;
+}
+
+.controls-btn-row {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.controls-btn-row .map-toggle-btn {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.edit-mode-active {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #fff !important;
+}
+
+@media (pointer: coarse) {
+  .edge-handle {
+    width: 28px;
+    height: 28px;
+  }
+
+  .edge-handle-start,
+  .edge-handle-end {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+  }
 }
 
 .summary-stack {

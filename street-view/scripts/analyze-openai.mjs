@@ -72,10 +72,14 @@ async function imageToDataUrl(filePath) {
   return `data:image/jpeg;base64,${buffer.toString("base64")}`;
 }
 
-function buildRequestBody(segment, imageDataUrls, model, imageDetail) {
+function buildRequestBody(segment, imageDataUrls, captureItems, model, imageDetail) {
   const content = [{ type: "input_text", text: buildUserPrompt(segment) }];
   imageDataUrls.forEach((imageUrl, index) => {
-    content.push({ type: "input_text", text: `Image ${index + 1}` });
+    const cap = captureItems[index]?.capture;
+    const label = cap
+      ? `Image: ${cap.capture_id} (Station ${(cap.station_index || 0) + 1}, ${cap.direction})`
+      : `Image ${index + 1}`;
+    content.push({ type: "input_text", text: label });
     content.push({ type: "input_image", image_url: imageUrl, detail: imageDetail });
   });
 
@@ -159,7 +163,7 @@ export async function analyzeWithOpenAi({ candidates, images, out, keyEnv, model
       for (const captureItem of item.availableCaptures) {
         imageDataUrls.push(await imageToDataUrl(captureItem.absolutePath));
       }
-      const body = buildRequestBody(item.segment, imageDataUrls, model, imageDetail);
+      const body = buildRequestBody(item.segment, imageDataUrls, item.availableCaptures, model, imageDetail);
       lines.push(
         JSON.stringify({
           custom_id: `segment-${item.segment.segment_id}`,
@@ -187,7 +191,7 @@ export async function analyzeWithOpenAi({ candidates, images, out, keyEnv, model
       imageDataUrls.push(await imageToDataUrl(captureItem.absolutePath));
     }
 
-    const body = buildRequestBody(item.segment, imageDataUrls, model, imageDetail);
+    const body = buildRequestBody(item.segment, imageDataUrls, item.availableCaptures, model, imageDetail);
     const perSegmentEstimate = captureSize
       ? estimateOpenAiImageInputCost({
           model,
