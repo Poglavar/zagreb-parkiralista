@@ -56,6 +56,21 @@ let selectedAdminName = null;
 // Car footprints for capacity estimation (m² per spot)
 const CAR_FOOTPRINT = { parallel: 13.75, perpendicular: 6.88, diagonal: 9.73, mixed: 10, unknown: 13.75 };
 
+// Lazy-load turf.js on demand. Returns a promise that resolves when turf is available globally.
+let _turfPromise = null;
+function loadTurf() {
+  if (window.turf) return Promise.resolve();
+  if (_turfPromise) return _turfPromise;
+  _turfPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/@turf/turf@7.1.0/turf.min.js";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load turf.js"));
+    document.head.appendChild(script);
+  });
+  return _turfPromise;
+}
+
 // ───────── Utility / formatting ─────────
 
 function capacityColor(capacity) {
@@ -131,6 +146,54 @@ function escapeHtml(s) {
   }[c]));
 }
 
+// Simple centroid for a GeoJSON feature without requiring turf.js. Computes
+// the arithmetic mean of all coordinate vertices. Good enough for popup/marker
+// placement and point-in-polygon prefiltering.
+function simpleCentroid(feature) {
+  const coords = feature.geometry?.coordinates;
+  if (!coords) return null;
+  const type = feature.geometry.type;
+  const points = [];
+  if (type === "Point") return coords;
+  if (type === "Polygon") {
+    for (const c of coords[0]) points.push(c);
+  } else if (type === "MultiPolygon") {
+    for (const poly of coords) for (const c of poly[0]) points.push(c);
+  }
+  if (!points.length) return null;
+  const lon = points.reduce((s, p) => s + p[0], 0) / points.length;
+  const lat = points.reduce((s, p) => s + p[1], 0) / points.length;
+  return [lon, lat];
+}
+
+// Approximate geodesic area of a GeoJSON polygon in m² using the shoelace
+// formula on lat/lon, scaled by cos(latitude). Not survey-grade but plenty
+// precise for capacity estimation on Zagreb-sized polygons.
+function simpleAreaM2(feature) {
+  const coords = feature.geometry?.coordinates;
+  if (!coords) return 0;
+  const rings = feature.geometry.type === "Polygon" ? [coords[0]]
+    : feature.geometry.type === "MultiPolygon" ? coords.map((p) => p[0])
+    : [];
+  let totalArea = 0;
+  for (const ring of rings) {
+    if (!ring || ring.length < 4) continue;
+    let area = 0;
+    for (let i = 0; i < ring.length - 1; i++) {
+      const [lon1, lat1] = ring[i];
+      const [lon2, lat2] = ring[i + 1];
+      area += (lon2 - lon1) * (lat2 + lat1);
+    }
+    // Convert from degree^2 to m^2: scale by metres-per-degree at the polygon's latitude
+    const midLat = ring.reduce((s, c) => s + c[1], 0) / ring.length;
+    const cosLat = Math.cos(midLat * Math.PI / 180);
+    const mPerDegLon = 111320 * cosLat;
+    const mPerDegLat = 110540;
+    totalArea += Math.abs(area / 2) * mPerDegLon * mPerDegLat;
+  }
+  return totalArea;
+}
+
 // ───────── Marker icon for enclosed (point) parking ─────────
 
 // Custom div-icon "P" pin used for OSM nodes (mostly underground / multi-storey
@@ -191,17 +254,9 @@ function buildOsmHandles(fc) {
   fc.features.forEach((feature, i) => {
     const props = feature.properties || {};
     const kind = props.parking_kind === "enclosed" ? "enclosed" : "open_air";
-    let lon, lat;
-    if (feature.geometry?.type === "Point") {
-      [lon, lat] = feature.geometry.coordinates;
-    } else {
-      try {
-        const c = turf.centroid(feature);
-        [lon, lat] = c.geometry.coordinates;
-      } catch (err) {
-        return;  // skip degenerate
-      }
-    }
+    const c = simpleCentroid(feature);
+    if (!c) return;  // skip degenerate
+    const [lon, lat] = c;
     out.push({
       lon,
       lat,
@@ -855,6 +910,8 @@ async function selectAdminLevel(value) {
 
   const level = Number(value);
   try {
+    // Load turf.js on demand — only needed for admin-level aggregation
+    await loadTurf();
     const adminFc = await fetchAdminBorders(level);
     const allHandles = [...(osmHandles || []), ...streetViewHandles];
     setAdminStatus(`agregiram ${formatNumber(allHandles.length)} parkirališta…`);
@@ -897,10 +954,10 @@ async function loadStreetViewLayer(map) {
   if (!fc || fc.type !== "FeatureCollection" || !Array.isArray(fc.features)) return null;
   if (fc.features.length === 0) return null;
 
-  // Compute area and capacity for each feature
+  // Compute area and capacity for each feature using lightweight helpers (no turf needed)
   for (const f of fc.features) {
     try {
-      const area = turf.area(f);
+      const area = simpleAreaM2(f);
       f.properties._area_m2 = area;
       const manner = f.properties?.tags?.parking_manner || "parallel";
       const footprint = CAR_FOOTPRINT[manner] || CAR_FOOTPRINT.parallel;
@@ -912,18 +969,17 @@ async function loadStreetViewLayer(map) {
   streetViewHandles = [];
   for (const f of fc.features) {
     const p = f.properties || {};
-    try {
-      const c = turf.centroid(f);
-      const [lon, lat] = c.geometry.coordinates;
-      streetViewHandles.push({
-        lon, lat,
-        kind: "street_view",
-        source: "street_view",
-        status: p.review_status || "pending",
-        capacity: p._capacity || 0,
-        area_m2: p._area_m2 || 0,
-      });
-    } catch {}
+    const c = simpleCentroid(f);
+    if (!c) continue;
+    const [lon, lat] = c;
+    streetViewHandles.push({
+      lon, lat,
+      kind: "street_view",
+      source: "street_view",
+      status: p.review_status || "pending",
+      capacity: p._capacity || 0,
+      area_m2: p._area_m2 || 0,
+    });
   }
 
   const byStatus = { confirmed: [], pending: [], suspect: [] };

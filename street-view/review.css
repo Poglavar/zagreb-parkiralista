@@ -688,6 +688,18 @@ button:hover,
   background: #fde68a;
 }
 
+.btn-undo {
+  background: var(--paper);
+  border-color: var(--muted);
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.btn-undo:hover {
+  background: #e2e8f0;
+  color: var(--ink);
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;

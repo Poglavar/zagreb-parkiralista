@@ -1,8 +1,8 @@
 // Reviewer for parking area polygons. Loads data from the parking API, not from local JSON bundles.
 import { activeParkingPolygons } from "./scripts/lib/osm-submit.mjs";
-import { buildParkingSidePolygons, bandWidthForManner } from "./scripts/lib/parking.mjs";
+import { buildParkingSidePolygons } from "./scripts/lib/parking.mjs";
 import { interpolateAlongPolyline, polylineLengthMeters } from "./scripts/lib/geo.mjs";
-import { chooseParkingPolygonKeys, toLatLngPath } from "./scripts/lib/review-map.mjs";
+import { toLatLngPath } from "./scripts/lib/review-map.mjs";
 
 const PARKING_API_BASE = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
   ? "http://localhost:3001/api/parking"
@@ -48,7 +48,8 @@ const els = {
   rightLevelField: document.getElementById("rightLevelField"),
   rightFormalityField: document.getElementById("rightFormalityField"),
   rightConfidenceField: document.getElementById("rightConfidenceField"),
-  reviewerNotesField: document.getElementById("reviewerNotesField")
+  reviewerNotesField: document.getElementById("reviewerNotesField"),
+  undoButton: document.getElementById("undoButton")
 };
 
 function formatNumber(value, fractionDigits = 1) {
@@ -122,6 +123,8 @@ async function loadArea(areaName) {
   if (areaName && areaName !== "all") params.set("area", areaName);
   const statusFilter = els.reviewFilterField.value;
   if (statusFilter && statusFilter !== "all") params.set("review_status", statusFilter);
+  // Reviewer needs inactive areas for review; captures are loaded per-segment on selection
+  params.set("include_inactive", "true");
 
   try {
     const resp = await fetch(`${PARKING_API_BASE}/areas?${params}`);
@@ -135,6 +138,7 @@ async function loadArea(areaName) {
     });
     state.index = 0;
     state.formPreview = null;
+    clearUndo();
     console.log(`Loaded ${state.segments.length} segments for area: ${areaName || "all"}`);
     populateSegmentDropdown();
     renderAllPolygons();
@@ -142,6 +146,20 @@ async function loadArea(areaName) {
   } catch (err) {
     console.error("Failed to load area:", err.message);
     setOsmStatus(`Failed to load data: ${err.message}`, "needs-attention");
+  }
+}
+
+// Fetch captures for a single segment from the per-segment endpoint and cache them.
+async function ensureCaptures(segment) {
+  if (!segment || segment.captures?.length > 0 || segment._capturesLoaded) return;
+  try {
+    const resp = await fetch(`${PARKING_API_BASE}/areas/${encodeURIComponent(segment.segment_id)}`);
+    if (!resp.ok) { console.warn(`Failed to load captures for ${segment.segment_id}: HTTP ${resp.status}`); return; }
+    const data = await resp.json();
+    segment.captures = data.captures || [];
+    segment._capturesLoaded = true;
+  } catch (err) {
+    console.warn(`Error loading captures for ${segment.segment_id}:`, err.message);
   }
 }
 
@@ -687,6 +705,7 @@ function disableEditMode() {
 function selectSegment(index) {
   state.index = index;
   state.formPreview = null;
+  clearUndo();
   disableEditMode();
   render();
 }
@@ -832,7 +851,7 @@ function renderEmptyState() {
   setOsmStatus("Nema parkirnih zona za odabrano područje/filter.", "muted");
 }
 
-function render() {
+async function render() {
   if (!state.segments.length) { renderEmptyState(); return; }
 
   const visible = visibleSegmentIndexes();
@@ -842,6 +861,8 @@ function render() {
 
   const segment = currentSegment();
   renderMeta(segment);
+  // Lazy-load captures for the selected segment before rendering them
+  await ensureCaptures(segment);
   renderCaptures(segment);
   populateForm(segment);
   updateConfirmButton(segment);
@@ -862,7 +883,64 @@ function stepVisible(dir) {
   const visible = visibleSegmentIndexes();
   const pos = visible.indexOf(state.index);
   const next = pos + dir;
-  if (next >= 0 && next < visible.length) { state.index = visible[next]; state.formPreview = null; render(); }
+  if (next >= 0 && next < visible.length) { state.index = visible[next]; state.formPreview = null; clearUndo(); render(); }
+}
+
+// --- Undo support ---
+
+function clearUndo() {
+  state.lastSave = null;
+  els.undoButton.hidden = true;
+}
+
+async function undoLastSave() {
+  const saved = state.lastSave;
+  if (!saved) return;
+
+  const segment = state.segments.find((s) => s.segment_id === saved.segmentId);
+  if (!segment) { clearUndo(); return; }
+
+  els.undoButton.disabled = true;
+  let apiOk = true;
+
+  // Re-POST the previous side data to restore the old state
+  for (const prev of saved.sides) {
+    try {
+      const resp = await fetch(`${PARKING_API_BASE}/areas`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          segment_id: String(saved.segmentId),
+          side: prev.side,
+          geom: prev.geom,
+          tags: prev.tags,
+          confidence: prev.confidence,
+          review_status: saved.reviewStatus,
+          active: prev.active,
+          updated_by: "street-view-reviewer"
+        })
+      });
+      if (!resp.ok) { console.error(`Undo API failed ${saved.segmentId}/${prev.side}:`, await resp.text()); apiOk = false; }
+      else console.log(`Undo ${saved.segmentId}/${prev.side} → [${saved.reviewStatus}]`);
+    } catch (err) { console.error(`Undo error ${saved.segmentId}/${prev.side}:`, err.message); apiOk = false; }
+  }
+
+  // Restore local state
+  segment.review_status = saved.reviewStatus;
+  for (const prev of saved.sides) {
+    segment.sides[prev.side] = structuredClone(prev.sideData);
+  }
+
+  clearUndo();
+  els.undoButton.disabled = false;
+
+  if (!apiOk) setOsmStatus("Poništavanje nije potpuno uspjelo — provjerite konzolu.", "needs-attention");
+  else setOsmStatus("Poništeno.", "muted");
+
+  state.suppressMapFly = true;
+  updateSegmentDropdownOption(state.index, segment);
+  renderAllPolygons();
+  render();
 }
 
 // --- Save to API ---
@@ -870,6 +948,27 @@ function stepVisible(dir) {
 async function saveReview(reviewStatus, suspectReason = null) {
   const segment = currentSegment();
   if (!segment) return;
+
+  // Snapshot the current state for undo before making changes
+  const prevSides = [];
+  for (const side of ["left", "right"]) {
+    const sd = segment.sides?.[side];
+    if (sd) {
+      prevSides.push({
+        side,
+        sideData: structuredClone(sd),
+        geom: sd.polygon || null,
+        tags: sd.tags ? { ...sd.tags } : {},
+        confidence: sd.confidence || 0,
+        active: !sd.inactive,
+      });
+    }
+  }
+  state.lastSave = {
+    segmentId: segment.segment_id,
+    reviewStatus: segment.review_status,
+    sides: prevSides,
+  };
 
   const assessment = formAssessment();
   const polyOverrides = state.formPreview?.polygonOverrides || null;
@@ -960,7 +1059,13 @@ async function saveReview(reviewStatus, suspectReason = null) {
   // Update just the selected option in the segment dropdown instead of rebuilding
   updateSegmentDropdownOption(state.index, segment);
 
-  if (!apiOk) setOsmStatus("Spremanje na API nije uspjelo — provjerite konzolu.", "needs-attention");
+  if (!apiOk) {
+    setOsmStatus("Spremanje na API nije uspjelo — provjerite konzolu.", "needs-attention");
+    clearUndo(); // Don't offer undo if save failed
+  } else {
+    // Show undo button after a successful save
+    els.undoButton.hidden = false;
+  }
   state.suppressMapFly = true;
   renderAllPolygons();
   render();
@@ -995,6 +1100,7 @@ async function init() {
   });
   els.prevButton.addEventListener("click", () => stepVisible(-1));
   els.nextButton.addEventListener("click", () => stepVisible(1));
+  els.undoButton.addEventListener("click", () => undoLastSave());
   els.acceptAiButton.addEventListener("click", () => saveReview("confirmed"));
   const suspectModal = document.getElementById("suspectModal");
   const suspectReasonField = document.getElementById("suspectReasonField");
