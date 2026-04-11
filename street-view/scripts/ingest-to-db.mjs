@@ -199,7 +199,7 @@ async function main() {
           JSON.stringify(seg.geometry),
           seg.width_m,
           seg.length_m,
-          seg.area_labels || [],
+          (seg.area_labels || []).map((l) => l.replace(/^"|"$/g, "")).filter((l) => l !== l.toUpperCase() || l.length <= 1),
           JSON.stringify(captures)
         ]);
       }

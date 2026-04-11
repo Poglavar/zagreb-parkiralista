@@ -73,6 +73,18 @@ ${SSH_CMD} "
     cp -r ${REPO_PATH}/street-view/out/images/.                ${WEB_ROOT}/unos/out/images/ 2>/dev/null || true
 "
 
+# 4. Cache-bust version params in HTML files with a deploy timestamp
+CACHE_TS=$(date +%s)
+echo "Cache-busting with timestamp ${CACHE_TS}…"
+${SSH_CMD} "
+    # review.html: review.css and review.js (may or may not have existing ?v=)
+    sed -i -E 's/review\.css(\?v=[0-9]*)?/review.css?v=${CACHE_TS}/g' ${WEB_ROOT}/unos/review.html
+    sed -i -E 's/review\.js(\?v=[0-9]*)?/review.js?v=${CACHE_TS}/g' ${WEB_ROOT}/unos/review.html
+    # index.html: index.css and map.js (already have ?v=N)
+    sed -i -E 's/index\.css(\?v=[0-9]*)?/index.css?v=${CACHE_TS}/g' ${WEB_ROOT}/index.html
+    sed -i -E 's/map\.js(\?v=[0-9]*)?/map.js?v=${CACHE_TS}/g' ${WEB_ROOT}/index.html
+"
+
 echo "=== Deployment complete ==="
 echo "Frontend: https://zagreb.lol/parkiralista"
 echo "Review UI: https://zagreb.lol/parkiralista/unos/review.html"

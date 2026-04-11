@@ -14,6 +14,7 @@ const state = {
   segments: [],
   formPreview: null,
   isPopulatingForm: false,
+  editMode: false,
   map: { instance: null, satellite: null, tileLayer: null, overlayLayer: null, satelliteOverlay: null, dragState: null },
   index: 0,
   filters: { search: "", review: "all" }
@@ -135,6 +136,7 @@ async function loadArea(areaName) {
     state.index = 0;
     state.formPreview = null;
     console.log(`Loaded ${state.segments.length} segments for area: ${areaName || "all"}`);
+    populateSegmentDropdown();
     renderAllPolygons();
     render();
   } catch (err) {
@@ -667,9 +669,25 @@ function renderAllPolygons() {
   }
 }
 
+function disableEditMode() {
+  if (!state.editMode) return;
+  state.editMode = false;
+  const btn = document.getElementById("editModeBtn");
+  btn.textContent = "Uredi poligone";
+  btn.classList.remove("edit-mode-active");
+  for (const m of [state.map.instance, state.map.satellite]) {
+    if (!m) continue;
+    m.dragging.enable();
+    m.touchZoom.enable();
+    m.scrollWheelZoom.enable();
+    m.doubleClickZoom.enable();
+  }
+}
+
 function selectSegment(index) {
   state.index = index;
   state.formPreview = null;
+  disableEditMode();
   render();
 }
 
@@ -799,6 +817,14 @@ function populateSegmentDropdown() {
   });
 }
 
+function updateSegmentDropdownOption(index, segment) {
+  const dd = document.getElementById("segmentJump");
+  const opt = dd.querySelector(`option[value="${index}"]`);
+  if (!opt) return;
+  const statusShort = { pending: "č", confirmed: "p", suspect: "s" }[segment.review_status] || "?";
+  opt.textContent = `#${segment.segment_id} [${statusShort}]`;
+}
+
 function renderEmptyState() {
   els.segmentMeta.innerHTML = "";
   els.prevButton.disabled = true;
@@ -819,7 +845,8 @@ function render() {
   renderCaptures(segment);
   populateForm(segment);
   updateConfirmButton(segment);
-  populateSegmentDropdown();
+  // Just update selected value; full dropdown rebuild happens in loadArea
+  document.getElementById("segmentJump").value = state.index;
   renderSelection(segment);
 
   const pos = visible.indexOf(state.index);
@@ -929,6 +956,9 @@ async function saveReview(reviewStatus, suspectReason = null) {
       segment.sides[side] = { ...segment.sides[side], polygon: geom, inactive: true, review_status: reviewStatus };
     }
   }
+
+  // Update just the selected option in the segment dropdown instead of rebuilding
+  updateSegmentDropdownOption(state.index, segment);
 
   if (!apiOk) setOsmStatus("Spremanje na API nije uspjelo — provjerite konzolu.", "needs-attention");
   state.suppressMapFly = true;
@@ -1040,14 +1070,13 @@ async function init() {
 
   // Edit mode: freeze map for polygon editing on touch devices
   const editModeBtn = document.getElementById("editModeBtn");
-  let editMode = false;
   editModeBtn.addEventListener("click", () => {
-    editMode = !editMode;
-    editModeBtn.textContent = editMode ? "Otključaj kartu" : "Uredi poligone";
-    editModeBtn.classList.toggle("edit-mode-active", editMode);
+    state.editMode = !state.editMode;
+    editModeBtn.textContent = state.editMode ? "Otključaj kartu" : "Uredi poligone";
+    editModeBtn.classList.toggle("edit-mode-active", state.editMode);
     for (const m of [state.map.instance, state.map.satellite]) {
       if (!m) continue;
-      if (editMode) {
+      if (state.editMode) {
         m.dragging.disable();
         m.touchZoom.disable();
         m.scrollWheelZoom.disable();

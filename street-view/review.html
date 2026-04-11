@@ -12,23 +12,25 @@
   <body>
     <header class="topbar">
       <h1 class="topbar-title">Pregled segmenata</h1>
-      <label class="topbar-area-label muted">
-        Područje
-        <select id="areaSelect"></select>
-      </label>
-      <label class="topbar-area-label muted">
-        Status
-        <select id="reviewFilterField">
-          <option value="all">svi</option>
-          <option value="pending">na čekanju</option>
-          <option value="confirmed">potvrđeno</option>
-          <option value="suspect">sumnjivo</option>
-        </select>
-      </label>
-      <label class="topbar-area-label muted">
-        Segment
-        <select id="segmentJump" class="segment-jump"></select>
-      </label>
+      <div class="topbar-filters">
+        <label class="topbar-area-label muted">
+          Područje
+          <select id="areaSelect"></select>
+        </label>
+        <label class="topbar-area-label muted">
+          Status
+          <select id="reviewFilterField">
+            <option value="all">svi</option>
+            <option value="pending">na čekanju</option>
+            <option value="confirmed">potvrđeno</option>
+            <option value="suspect">sumnjivo</option>
+          </select>
+        </label>
+        <label class="topbar-area-label muted">
+          Segment
+          <select id="segmentJump"></select>
+        </label>
+      </div>
       <a href="../" class="viewer-link">Karta</a>
     </header>
 
