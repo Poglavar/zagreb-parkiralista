@@ -38,6 +38,42 @@ const SIDE_SCHEMA = {
   }
 };
 
+const ROAD_GEOMETRY_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "lane_count",
+    "lane_widths_m",
+    "total_carriageway_m",
+    "confidence"
+  ],
+  properties: {
+    lane_count: {
+      type: "integer",
+      minimum: 1,
+      description: "Number of travel lanes (excluding parking lanes)"
+    },
+    lane_widths_m: {
+      type: "array",
+      items: { type: "number" },
+      description: "Per-lane width estimates in metres, ordered left-to-right facing the forward direction"
+    },
+    total_carriageway_m: {
+      type: "number",
+      description: "Total carriageway width (travel lanes only, excluding sidewalks and parking strips)"
+    },
+    confidence: {
+      type: "number",
+      minimum: 0,
+      maximum: 1
+    },
+    notes: {
+      type: "string",
+      description: "What references were used, any caveats"
+    }
+  }
+};
+
 const STATION_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -46,7 +82,8 @@ const STATION_SCHEMA = {
     "decision",
     "confidence",
     "segment_left",
-    "segment_right"
+    "segment_right",
+    "road_geometry"
   ],
   properties: {
     station_index: { type: "integer", minimum: 0 },
@@ -60,7 +97,8 @@ const STATION_SCHEMA = {
       maximum: 1
     },
     segment_left: SIDE_SCHEMA,
-    segment_right: SIDE_SCHEMA
+    segment_right: SIDE_SCHEMA,
+    road_geometry: ROAD_GEOMETRY_SCHEMA
   }
 };
 
@@ -121,6 +159,15 @@ Different stations along the same road may have different parking. A street migh
 
 EVIDENCE:
 For each side, list specific visual observations that support your decision (e.g. "3 cars parked parallel along curb", "marked perpendicular bays with P sign", "no cars, yellow curb markings").
+
+ROAD GEOMETRY:
+Also estimate the road geometry at each station:
+- How many travel lanes are there (excluding any parking lanes)?
+- Estimate each lane's width in metres, ordered left to right facing the forward direction.
+- Estimate the total carriageway width (travel lanes only, not sidewalks or parking strips).
+- Use whatever visual references are available to calibrate your width estimates.
+- Note what references you used and any caveats.
+- The "estimated road width" in the segment metadata is a rough figure from map data — your visual estimate may differ.
 
 CONFIDENCE:
 - 0.9+: clear evidence, unambiguous.

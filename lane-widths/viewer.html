@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="hr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lane Width Measurement Viewer</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="viewer.css" />
+</head>
+<body>
+  <header id="topbar">
+    <h1>Lane Width Measurements</h1>
+    <div class="controls">
+      <button id="btn-prev" type="button">← Prev</button>
+      <span id="counter">0 / 0</span>
+      <button id="btn-next" type="button">Next →</button>
+    </div>
+    <div class="controls">
+      <label>Sort:
+        <select id="sort-select">
+          <option value="confidence_desc">Confidence ↓</option>
+          <option value="width_desc">Total width ↓</option>
+          <option value="lanes_desc">Lane count ↓</option>
+          <option value="name">Name A–Z</option>
+        </select>
+      </label>
+      <label>Filter:
+        <select id="filter-select">
+          <option value="all">All segments</option>
+          <option value="marking_detection">Markings detected</option>
+          <option value="edge_divided_by_osm_lanes">Edge + OSM lanes</option>
+          <option value="has_polylines">Has polylines</option>
+          <option value="insufficient_data">Insufficient data</option>
+        </select>
+      </label>
+      <span id="filter-count" class="filter-count"></span>
+    </div>
+    <div class="controls">
+      <button id="btn-osm-ways" type="button">Show OSM ways + lanes</button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section id="map-section">
+      <div id="map"></div>
+    </section>
+
+    <section id="detail-section">
+      <div class="detail-card" id="card-info">
+        <h2 id="road-name">—</h2>
+        <div id="road-meta" class="meta-line"></div>
+      </div>
+
+      <div class="detail-card" id="card-measurement">
+        <h2>Measurement</h2>
+        <div class="stat-grid" id="stat-grid"></div>
+      </div>
+
+      <div class="detail-card" id="card-lanes">
+        <h2>Lane Widths</h2>
+        <div id="lane-bars"></div>
+      </div>
+
+      <div class="detail-card" id="card-profile">
+        <h2>Cross-section Profile</h2>
+        <img id="profile-img" alt="Road brightness profile" />
+        <div id="profile-caption" class="meta-line"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="loading">Loading lane-widths.json…</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="viewer.js"></script>
+</body>
+</html>
