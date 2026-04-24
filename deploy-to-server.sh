@@ -50,10 +50,9 @@ ${SSH_CMD} "
     cp ${REPO_PATH}/favicon.svg ${WEB_ROOT}/favicon.svg
 
     cp ${REPO_PATH}/data/osm/parking_zagreb.geojson         ${WEB_ROOT}/data/osm/parking_zagreb.geojson
-    cp ${REPO_PATH}/data/final/informal_parking.geojson     ${WEB_ROOT}/data/final/informal_parking.geojson
+    cp ${REPO_PATH}/data/final/informal_parking.geojson     ${WEB_ROOT}/data/final/informal_parking.geojson || true
     cp ${REPO_PATH}/data/final/parking_with_capacity.geojson ${WEB_ROOT}/data/final/parking_with_capacity.geojson
     cp ${REPO_PATH}/data/candidates/llm_parking_candidates.geojson ${WEB_ROOT}/data/candidates/llm_parking_candidates.geojson || true
-    cp ${REPO_PATH}/data/candidates/vehicles.geojson        ${WEB_ROOT}/data/candidates/vehicles.geojson || true
 "
 
 # 3. Deploy street-view review UI (tracked files only — everything under
@@ -74,10 +73,6 @@ ${SSH_CMD} "
 # 4. Rsync gitignored data files (not in git, must be pushed from local)
 echo "Syncing street-view OSM data…"
 rsync -a street-view/data/osm/parking_zagreb.geojson ${SERVER_USER}@${SERVER_HOST}:${WEB_ROOT}/unos/data/osm/parking_zagreb.geojson
-
-echo "Syncing street-view review bundles (legacy — review.js now uses the API)…"
-rsync -a street-view/out/review-bundle*.json ${SERVER_USER}@${SERVER_HOST}:${WEB_ROOT}/unos/out/ 2>/dev/null || true
-rsync -a street-view/out/*-review-bundle.json ${SERVER_USER}@${SERVER_HOST}:${WEB_ROOT}/unos/out/ 2>/dev/null || true
 
 # Flat legacy image dir (older pipeline output) + per-area image dirs (newer
 # pipeline output, e.g. street-view/out/donji-grad/images/). The API returns
