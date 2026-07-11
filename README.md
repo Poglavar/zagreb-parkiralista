@@ -19,6 +19,12 @@ Open database of parking areas in Zagreb — official, informal, and capacity-es
 
 Snapshot: srpanj 2026. (novo: SAM 3 access odobren; Faza 5 default je claude-cli subscription backend; `32_render_area.py` za pokrivanje cijelih četvrti; YOLO vehicles + informal layeri regenerirani 2026-07-11)
 
+**Odluka (2026-07-11): aerial track (Faza 5) NIJE dio defaultnog workflowa za nove četvrti.**
+Ni s oriented-polygon outputom (claude-sonnet-5) rezultati nisu dovoljno korisni kao geometrija —
+korisnik ih je ocijenio neupotrebljivima. Kod ostaje (31/32/33 + provjera/aerial.html) i može se
+pokrenuti ručno, ali **standardni workflow za novu četvrt je: OSM + Street View** (process-area.mjs).
+Isto vrijedi za SAM segmentaciju (Faza 1.2–1.4, umirovljena ranije istog dana).
+
 | Faza | Status | Bilješka |
 |---|---|---|
 | **0 — OSM baseline** | shipped | 4.898 features (4.777 poligona + 121 nodes), regenerirano s `parking_kind` klasifikacijom |

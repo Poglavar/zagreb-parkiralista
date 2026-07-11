@@ -63,6 +63,20 @@ const LAYER_FORMALITY = {
   streetViewSuspect: "informal",
 };
 
+// Master section checkbox that gates each layer (whole-section on/off).
+// Only the OSM section is on by default.
+const LAYER_SECTION = {
+  osmOpen: "section-osm",
+  osmEnclosed: "section-osm",
+  llmPending: "section-llm",
+  llmConfirmed: "section-llm",
+  llmRejected: "section-llm",
+  informal: "section-segmentation",
+  streetViewConfirmed: "section-street-view",
+  streetViewPending: "section-street-view",
+  streetViewSuspect: "section-street-view",
+};
+
 // Checkbox ID that controls user visibility for each layer key.
 const LAYER_CHECKBOX = {
   osmOpen: "toggle-osm-open",
@@ -91,8 +105,10 @@ function reapplyFormalityFilter() {
     if (!layer || !mapRef) continue;
     const cbId = LAYER_CHECKBOX[layerKey];
     const userOn = cbId ? (document.getElementById(cbId)?.checked !== false) : true;
+    const sectionId = LAYER_SECTION[layerKey];
+    const sectionOn = sectionId ? (document.getElementById(sectionId)?.checked !== false) : true;
     const formalityOn = formalityFilter[formality];
-    if (userOn && formalityOn) {
+    if (userOn && sectionOn && formalityOn) {
       if (!mapRef.hasLayer(layer)) layer.addTo(mapRef);
     } else {
       if (mapRef.hasLayer(layer)) mapRef.removeLayer(layer);
@@ -383,8 +399,11 @@ async function loadOsmLayer(map) {
       (f) => f.properties?.parking_kind === "enclosed"
     );
 
-    layers.osmOpen = buildOsmKindLayer(openFeatures, "open_air").addTo(map);
-    layers.osmEnclosed = buildOsmKindLayer(enclosedFeatures, "enclosed").addTo(map);
+    // Visibility is decided centrally (section master × per-layer toggle ×
+    // formality) — build the layers, then let reapplyFormalityFilter add them.
+    layers.osmOpen = buildOsmKindLayer(openFeatures, "open_air");
+    layers.osmEnclosed = buildOsmKindLayer(enclosedFeatures, "enclosed");
+    reapplyFormalityFilter();
 
     osmHandles = buildOsmHandles(osmFeatureCollection);
     document.getElementById("count-osm-open").textContent = formatNumber(openFeatures.length);
@@ -1089,7 +1108,6 @@ async function loadStreetViewLayer(map) {
       style: () => ({ color: style.color, weight: 2, fillColor: style.fillColor, fillOpacity: style.fillOpacity, dashArray: style.dashArray }),
       onEachFeature: streetViewPopup,
     });
-    if (features.length > 0) layer.addTo(map);
 
     const key = `streetView${status.charAt(0).toUpperCase() + status.slice(1)}`;
     layers[key] = layer;
@@ -1115,23 +1133,16 @@ async function loadStreetViewLayer(map) {
   }
   updateFormalityStat();
 
-  // Update headline to include street view data
-  reaggregateTotals();
+  // Apply visibility rules (section off by default) + refresh headline/totals.
+  reapplyFormalityFilter();
 }
 
 // ───────── Layer toggles ─────────
 
 function wireToggle(checkboxId, layerName) {
-  const cb = document.getElementById(checkboxId);
-  cb.addEventListener("change", () => {
-    const layer = layers[layerName];
-    if (!layer) return;
-    const formality = LAYER_FORMALITY[layerName];
-    const formalityOn = !formality || formalityFilter[formality];
-    if (cb.checked && formalityOn) layer.addTo(mapRef);
-    else mapRef.removeLayer(layer);
-    reaggregateTotals();
-  });
+  // All visibility rules (per-layer toggle × section master × formality) live
+  // in reapplyFormalityFilter — just re-run it on any toggle change.
+  document.getElementById(checkboxId).addEventListener("change", reapplyFormalityFilter);
 }
 
 function visibleHandles() {
@@ -1304,6 +1315,11 @@ function init() {
     header.addEventListener("click", () => {
       header.parentElement.classList.toggle("collapsed");
     });
+  });
+
+  // Section master checkboxes — whole-section layer visibility
+  document.querySelectorAll(".section-toggle").forEach((cb) => {
+    cb.addEventListener("change", reapplyFormalityFilter);
   });
 
   // Tap map to close panels on mobile
