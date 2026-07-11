@@ -51,3 +51,7 @@ street-view/data/osm
 
 # Local symlink so unos/review.html (the prod path) works in local dev too
 unos
+
+# Regenerable pipeline outputs (deploy rsyncs them; dropped from git in 2acd5e0)
+data/candidates/vehicles.geojson
+data/final/informal_parking.geojson
