@@ -17,13 +17,13 @@ Open database of parking areas in Zagreb — official, informal, and capacity-es
 
 ## Trenutno stanje
 
-Snapshot: travanj 2026.
+Snapshot: srpanj 2026. (novo: SAM 3 access odobren; Faza 5 default je claude-cli subscription backend; `32_render_area.py` za pokrivanje cijelih četvrti; YOLO vehicles + informal layeri regenerirani 2026-07-11)
 
 | Faza | Status | Bilješka |
 |---|---|---|
 | **0 — OSM baseline** | shipped | 4.898 features (4.777 poligona + 121 nodes), regenerirano s `parking_kind` klasifikacijom |
 | **1.1 — Tile fetcher** | shipped | Verificirano protiv City of Zagreb CDOF 2022 endpoint-a |
-| **1.2 — SAM 3 segmentacija** | blokirano | `facebook/sam3` čeka HF gating review; LangSAM fallback nepristupačan zbog `transformers 5.5` ↔ `groundingdino-py 0.4.0` inkompatibilnosti |
+| **1.2 — SAM 3 segmentacija** | odblokirano (srpanj 2026) | HF access za `facebook/sam3` odobren — `02_segment.py` je spreman za run (prvi run skida ~3 GB weights). LangSAM fallback i dalje slomljen (`transformers 5.5` ↔ `groundingdino-py 0.4.0`), ali više nije potreban |
 | **1.3–1.4 — Vectorize + diff vs OSM** | scaffolded | Skripte spremne, čekaju Fazu 1.2 |
 | **2 — Capacity refinement** | shipped | Spaja OSM + ML kandidate u jedinstveni `parking_with_capacity.geojson` |
 | **3.1 — Vehicle detection (YOLO)** | shipped | Ultralytics YOLO; za produkciju treba CARPK fine-tuning |
@@ -230,12 +230,15 @@ s krošnjama gdje se vidi par auta i susjedni segmenti imaju mapirano parkiranje
 4. **Georeference** — bbox_pct se mapira preko composite metadata sidecar-a (`composite_*.json`) na WGS84 polygon
 5. **Render** — viewer ima dva sub-toggle-a: "Claude" (teal, dashed border, `swatch-llm-anthropic`) i "GPT" (magenta, dashed border, `swatch-llm-openai`). Klik na poligon → popup s `kind`, `confidence`, LLM razlogom + source composite
 
-**Setup**: Treba ili `ANTHROPIC_API_KEY` ili `OPENAI_API_KEY` u root `.env` (ili oba za A/B). Skripte čitaju `.env` automatski, nije potreban `huggingface-cli login` ni nikakav drugi shell setup.
+**Setup**: Default provider je **claude-cli** — poziva lokalno instalirani Claude Code CLI (`claude -p`) u headless modu, pa se potrošnja naplaćuje kroz Claude pretplatu (Max), ne kroz API. Nije potreban nikakav API ključ. Za API providere treba `ANTHROPIC_API_KEY` ili `OPENAI_API_KEY` u root `.env`.
 
 **Provider podrška**:
-- **anthropic** (default) → Claude Sonnet 4.6, max_tokens 2000 (sasvim dovoljno)
+- **claude-cli** (default, srpanj 2026) → lokalni `claude -p` s `--json-schema` enforced outputom, subscription-billed, 4 paralelna workera (`--workers N`). ~45–135 s po composite-u; nominalna API-ekvivalentna cijena ~$0,20–0,50 po composite-u prikazuje se u logu, ali se stvarno ne naplaćuje. Featurei su tagirani `provider=anthropic` + `engine=claude-cli` pa viewer ne treba izmjene.
+- **anthropic** → Claude API (Sonnet 4.6 default), max_tokens 2000
 - **openai** → GPT-4o (default) ili GPT-5 (`--model gpt-5 --max-tokens 10000` zbog hidden reasoning tokens — manje od toga vraća prazan response)
-- **both** → procesira oba providera u jednom run-u, output u istu datoteku s `provider` propertom po feature-u
+- **both** → procesira anthropic + openai u jednom run-u, output u istu datoteku s `provider` propertom po feature-u
+
+**Pokrivanje cijelog područja** (srpanj 2026): `32_render_area.py --area "Donji grad"` dohvaća granicu četvrti s borders API-ja, izračuna grid composite centara (spacing 3 tile-a, ~40% overlap) i pokrene 30_render_composite.py za svaki. Zatim `31_llm_propose.py --all`.
 
 **Stvarni troškovi (verificirano iz dosadašnjih runova)**:
 - Claude Sonnet 4.6: ~$0,017 po composite-u (12 s, 687 output tokens)
@@ -385,7 +388,8 @@ zagreb-parkiralista/
 │   ├── 21_fetch_landuse.py        # Faza 3 prep — OSM landuse polygons
 │   ├── 22_fetch_highways.py       # Faza 5 prep — OSM highway network
 │   ├── 30_render_composite.py     # Faza 5.1 — stitch tiles + overlay roads/parking/cars
-│   └── 31_llm_propose.py          # Faza 5.2 — Claude / GPT vision API → polygon proposals
+│   ├── 31_llm_propose.py          # Faza 5.2 — claude-cli (subscription) / Claude API / GPT → polygon proposals
+│   └── 32_render_area.py          # Faza 5 driver — composite grid za cijelu četvrt/naselje (borders API)
 │
 ├── yolo-street-view/        # YOLO detekcija na street-view slikama + viewer za inspekciju
 │   ├── analyze.py          # YOLO na svim street-view slikama → per-image JSON

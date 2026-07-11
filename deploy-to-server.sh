@@ -50,10 +50,34 @@ ${SSH_CMD} "
     cp ${REPO_PATH}/favicon.svg ${WEB_ROOT}/favicon.svg
 
     cp ${REPO_PATH}/data/osm/parking_zagreb.geojson         ${WEB_ROOT}/data/osm/parking_zagreb.geojson
-    cp ${REPO_PATH}/data/final/informal_parking.geojson     ${WEB_ROOT}/data/final/informal_parking.geojson || true
     cp ${REPO_PATH}/data/final/parking_with_capacity.geojson ${WEB_ROOT}/data/final/parking_with_capacity.geojson
-    cp ${REPO_PATH}/data/candidates/llm_parking_candidates.geojson ${WEB_ROOT}/data/candidates/llm_parking_candidates.geojson || true
 "
+# LLM candidates are no longer served as a static file — the viewer reads them
+# from /api/parking/aerial-candidates (ingested via pipeline/33_ingest_candidates.py).
+# informal_parking.geojson is a regenerated pipeline artifact, rsynced from local:
+echo "Syncing informal-parking layer…"
+rsync -a data/final/informal_parking.geojson ${SERVER_USER}@${SERVER_HOST}:${WEB_ROOT}/data/final/informal_parking.geojson || true
+
+# 2b. Diagnostic viewers (lane-widths + yolo-street-view), crosslinked from the topbar
+echo "Deploying diagnostic viewers…"
+${SSH_CMD} "
+    mkdir -p ${WEB_ROOT}/lane-widths/data ${WEB_ROOT}/yolo-street-view/out
+    cp ${REPO_PATH}/lane-widths/viewer.html ${WEB_ROOT}/lane-widths/viewer.html
+    cp ${REPO_PATH}/lane-widths/viewer.css  ${WEB_ROOT}/lane-widths/viewer.css
+    cp ${REPO_PATH}/lane-widths/viewer.js   ${WEB_ROOT}/lane-widths/viewer.js
+    cp ${REPO_PATH}/yolo-street-view/viewer.html ${WEB_ROOT}/yolo-street-view/viewer.html
+    cp ${REPO_PATH}/yolo-street-view/viewer.css  ${WEB_ROOT}/yolo-street-view/viewer.css
+    cp ${REPO_PATH}/yolo-street-view/viewer.js   ${WEB_ROOT}/yolo-street-view/viewer.js
+    # yolo viewer loads images/<file>; point that at the street-view images synced to unos/
+    ln -sfn ${WEB_ROOT}/unos/out/images ${WEB_ROOT}/yolo-street-view/images
+"
+# lane-widths/data is a local symlink to ../data/analysis; yolo analysis JSON is gitignored — rsync both
+rsync -aL lane-widths/data/ ${SERVER_USER}@${SERVER_HOST}:${WEB_ROOT}/lane-widths/data/ || true
+rsync -a yolo-street-view/out/yolo-analysis.json ${SERVER_USER}@${SERVER_HOST}:${WEB_ROOT}/yolo-street-view/out/yolo-analysis.json || true
+
+# Composite PNGs power the crop preview in LLM-candidate popups (gitignored, ~75 MB)
+echo "Syncing Phase 5 composites…"
+rsync -a --include='*.png' --exclude='*' data/composites/cdof2022/ ${SERVER_USER}@${SERVER_HOST}:${WEB_ROOT}/data/composites/cdof2022/ || true
 
 # 3. Deploy street-view review UI (tracked files only — everything under
 # street-view/out/ is gitignored and handled in step 4 via local->server rsync).

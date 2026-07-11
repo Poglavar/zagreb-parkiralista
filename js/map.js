@@ -34,8 +34,9 @@ const layers = {
   osmEnclosed: null,
   ml: null,
   informal: null,
-  llmAnthropic: null,    // Phase 5 LLM proposals from Claude
-  llmOpenai: null,       // Phase 5 LLM proposals from GPT
+  llmPending: null,      // Phase 5 LLM proposals awaiting review (from parking API)
+  llmConfirmed: null,    // Phase 5 LLM proposals confirmed by a human
+  llmRejected: null,     // Phase 5 LLM proposals rejected by a human
   admin: null,           // Leaflet GeoJSON layer for current admin level
   adminHighlight: null,  // single-feature highlight layer for the selected row
 };
@@ -55,8 +56,9 @@ const LAYER_FORMALITY = {
   osmOpen: "formal",
   osmEnclosed: "formal",
   ml: "informal",
-  llmAnthropic: "informal",
-  llmOpenai: "informal",
+  llmPending: "informal",
+  llmConfirmed: "informal",
+  llmRejected: "informal",
   informal: "informal",            // SAM1
   streetViewConfirmed: "informal",
   streetViewPending: "informal",
@@ -68,8 +70,9 @@ const LAYER_CHECKBOX = {
   osmOpen: "toggle-osm-open",
   osmEnclosed: "toggle-osm-enclosed",
   ml: "toggle-ml",
-  llmAnthropic: "toggle-llm-anthropic",
-  llmOpenai: "toggle-llm-openai",
+  llmPending: "toggle-llm-pending",
+  llmConfirmed: "toggle-llm-confirmed",
+  llmRejected: "toggle-llm-rejected",
   informal: "toggle-informal",
   streetViewConfirmed: "toggle-street-view-confirmed",
   streetViewPending: "toggle-street-view-pending",
@@ -632,30 +635,28 @@ async function loadInformalLayer(map) {
   return layer;
 }
 
-// ───────── Phase 5 LLM cartographer layers (one per provider) ─────────
+// ───────── Phase 5 LLM cartographer layers (by review status) ─────────
+// Candidates live in the parking API (parking.aerial_candidate) with a review
+// workflow: pending → confirmed | rejected. Reviewing happens right here in
+// the popup — the buttons POST to the API and the layers reload.
 
-// Provider-specific color palette. Anthropic = teal, OpenAI = magenta. Each
-// provider's confidence levels share the same hue at varying opacities so
-// "high-confidence Claude" and "low-confidence Claude" look related but
-// distinct from anything GPT proposed.
-const LLM_PALETTE = {
-  anthropic: {
-    high:   { fill: "#0d9488", stroke: "#134e4a", weight: 3.0, fillOpacity: 0.50 },
-    medium: { fill: "#14b8a6", stroke: "#0f766e", weight: 2.5, fillOpacity: 0.35 },
-    low:    { fill: "#5eead4", stroke: "#0f766e", weight: 2.0, fillOpacity: 0.20 },
-  },
-  openai: {
-    high:   { fill: "#be185d", stroke: "#831843", weight: 3.0, fillOpacity: 0.50 },
-    medium: { fill: "#ec4899", stroke: "#9d174d", weight: 2.5, fillOpacity: 0.35 },
-    low:    { fill: "#f9a8d4", stroke: "#9d174d", weight: 2.0, fillOpacity: 0.20 },
-  },
+// Pending candidates keep the teal confidence palette; human-reviewed ones get
+// unambiguous status colors (green = confirmed, gray = rejected).
+const LLM_PENDING_PALETTE = {
+  high:   { fill: "#0d9488", stroke: "#134e4a", weight: 3.0, fillOpacity: 0.50 },
+  medium: { fill: "#14b8a6", stroke: "#0f766e", weight: 2.5, fillOpacity: 0.35 },
+  low:    { fill: "#5eead4", stroke: "#0f766e", weight: 2.0, fillOpacity: 0.20 },
+};
+const LLM_STATUS_STYLE = {
+  confirmed: { fill: "#16a34a", stroke: "#14532d", weight: 3.0, fillOpacity: 0.45 },
+  rejected:  { fill: "#9ca3af", stroke: "#4b5563", weight: 1.5, fillOpacity: 0.12 },
 };
 
 function llmStyleFor(feature) {
-  const provider = feature?.properties?.provider || "anthropic";
-  const conf = feature?.properties?.confidence || "low";
-  const palette = LLM_PALETTE[provider] || LLM_PALETTE.anthropic;
-  const s = palette[conf] || palette.low;
+  const p = feature?.properties || {};
+  const s = p.review_status !== "pending" && LLM_STATUS_STYLE[p.review_status]
+    ? LLM_STATUS_STYLE[p.review_status]
+    : (LLM_PENDING_PALETTE[p.confidence] || LLM_PENDING_PALETTE.low);
   return {
     color: s.stroke,
     weight: s.weight,
@@ -665,9 +666,10 @@ function llmStyleFor(feature) {
   };
 }
 
+const LLM_STATUS_LABELS = { pending: "čeka pregled", confirmed: "potvrđeno", rejected: "odbijeno" };
+
 function llmPopupHtml(feature) {
   const p = feature.properties || {};
-  const providerLabel = p.provider === "openai" ? "Model 2" : "Model 1";
   const kindLabel = {
     street_parking: "ulično parkiranje",
     lot: "parkiralište",
@@ -679,8 +681,15 @@ function llmPopupHtml(feature) {
     low: "niska",
   }[p.confidence] || p.confidence || "—";
   const cropHtml = buildCompositeCropHtml(p);
+  const status = p.review_status || "pending";
+  // Review buttons: pending gets confirm/reject; reviewed gets a revert option.
+  const idAttr = escapeHtml(p.id || "");
+  const buttons = status === "pending"
+    ? `<button class="review-btn review-confirm" onclick="reviewAerialCandidate('${idAttr}','confirmed')">✓ Potvrdi</button>
+       <button class="review-btn review-reject" onclick="reviewAerialCandidate('${idAttr}','rejected')">✕ Odbij</button>`
+    : `<button class="review-btn review-revert" onclick="reviewAerialCandidate('${idAttr}','pending')">↩ Vrati na čekanje</button>`;
   return `
-    <strong>LLM prijedlog (Faza 5) — ${escapeHtml(providerLabel)}</strong>
+    <strong>LLM prijedlog (Faza 5) — ${escapeHtml(LLM_STATUS_LABELS[status] || status)}</strong>
     ${cropHtml}
     <table class="popup-table">
       <tr><th>Model</th><td>${escapeHtml(p.model || "—")}</td></tr>
@@ -688,67 +697,77 @@ function llmPopupHtml(feature) {
       <tr><th>Pouzdanost</th><td>${escapeHtml(confLabel)}</td></tr>
       <tr><th>Razlog</th><td>${escapeHtml(p.reason || "—")}</td></tr>
     </table>
+    <div class="review-actions">${buttons}</div>
   `;
 }
 
-async function loadLlmLayer(map) {
-  const url = "data/candidates/llm_parking_candidates.geojson";
-  let res;
+// POST a review decision, then reload the LLM layers so the polygon moves to
+// its new status layer. Exposed on window because popup HTML uses onclick.
+window.reviewAerialCandidate = async function (id, status) {
   try {
-    res = await fetch(url, { cache: "no-store" });
+    const res = await fetch(`${API_BASE}/api/parking/aerial-candidates/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, review_status: status }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(`Greška pri spremanju: ${err.error || res.status}`);
+      return;
+    }
+    mapRef?.closePopup();
+    await loadLlmLayer(mapRef);
   } catch (err) {
-    return null;
+    alert(`Greška pri spremanju: ${err.message}`);
   }
-  if (!res.ok) return null;
+};
 
+async function loadLlmLayer(map) {
   let fc;
   try {
+    const res = await fetch(`${API_BASE}/api/parking/aerial-candidates`, { cache: "no-store" });
+    if (!res.ok) return null;
     fc = await res.json();
   } catch (err) {
-    console.warn("llm_parking_candidates.geojson present but malformed:", err);
+    console.warn("aerial-candidates API unreachable:", err);
     return null;
   }
   if (!fc || fc.type !== "FeatureCollection" || !Array.isArray(fc.features)) return null;
-  if (fc.features.length === 0) return null;  // empty file from a dry-run, skip
 
-  // Split by provider so the user can toggle each independently for A/B review.
-  const byProvider = { anthropic: [], openai: [] };
+  // Split by review status so each has its own toggle (like street view).
+  const byStatus = { pending: [], confirmed: [], rejected: [] };
   for (const feat of fc.features) {
-    const prov = feat.properties?.provider || "anthropic";
-    if (!byProvider[prov]) byProvider[prov] = [];
-    byProvider[prov].push(feat);
+    const status = feat.properties?.review_status || "pending";
+    (byStatus[status] || byStatus.pending).push(feat);
   }
 
-  const buildLayer = (features) => {
-    if (!features.length) return null;
-    return L.geoJSON({ type: "FeatureCollection", features }, {
+  const buildLayer = (features) =>
+    L.geoJSON({ type: "FeatureCollection", features }, {
       style: llmStyleFor,
       onEachFeature: (feature, lyr) => {
         lyr.bindPopup(llmPopupHtml(feature), { maxWidth: 360 });
       },
     });
-  };
 
-  const anthropicLayer = buildLayer(byProvider.anthropic);
-  const openaiLayer = buildLayer(byProvider.openai);
+  for (const [status, layerKey] of [
+    ["pending", "llmPending"],
+    ["confirmed", "llmConfirmed"],
+    ["rejected", "llmRejected"],
+  ]) {
+    // Reload-safe: drop the previous layer before rebuilding.
+    if (layers[layerKey] && map.hasLayer(layers[layerKey])) map.removeLayer(layers[layerKey]);
+    layers[layerKey] = buildLayer(byStatus[status]);
+    const cb = document.getElementById(LAYER_CHECKBOX[layerKey]);
+    if (cb) cb.disabled = false;
+    const ctr = document.getElementById(`count-llm-${status}`);
+    if (ctr) ctr.textContent = formatNumber(byStatus[status].length);
+  }
+  const totalCtr = document.getElementById("count-llm-all");
+  if (totalCtr) totalCtr.textContent = formatNumber(fc.features.length);
 
-  if (anthropicLayer) {
-    anthropicLayer.addTo(map);
-    layers.llmAnthropic = anthropicLayer;
-    const cb = document.getElementById("toggle-llm-anthropic");
-    if (cb) { cb.disabled = false; cb.checked = true; }
-    const ctr = document.getElementById("count-llm-anthropic");
-    if (ctr) ctr.textContent = formatNumber(byProvider.anthropic.length);
-  }
-  if (openaiLayer) {
-    openaiLayer.addTo(map);
-    layers.llmOpenai = openaiLayer;
-    const cb = document.getElementById("toggle-llm-openai");
-    if (cb) { cb.disabled = false; cb.checked = true; }
-    const ctr = document.getElementById("count-llm-openai");
-    if (ctr) ctr.textContent = formatNumber(byProvider.openai.length);
-  }
-  return { anthropicLayer, openaiLayer };
+  // Respect current toggle + formality state when (re-)adding to the map.
+  reapplyFormalityFilter();
+  return layers.llmPending;
 }
 
 // ───────── Phase 1 ML candidates layer ─────────
@@ -1227,8 +1246,9 @@ function init() {
   wireToggle("toggle-osm-enclosed", "osmEnclosed");
   wireToggle("toggle-ml", "ml");
   wireToggle("toggle-informal", "informal");
-  wireToggle("toggle-llm-anthropic", "llmAnthropic");
-  wireToggle("toggle-llm-openai", "llmOpenai");
+  wireToggle("toggle-llm-pending", "llmPending");
+  wireToggle("toggle-llm-confirmed", "llmConfirmed");
+  wireToggle("toggle-llm-rejected", "llmRejected");
   wireToggle("toggle-street-view-confirmed", "streetViewConfirmed");
   wireToggle("toggle-street-view-pending", "streetViewPending");
   wireToggle("toggle-street-view-suspect", "streetViewSuspect");

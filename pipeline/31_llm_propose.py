@@ -21,32 +21,41 @@ authoritative. The viewer renders them in a distinct color and shows the LLM's
 reason text in the popup.
 
 Setup:
-  1. Get an Anthropic API key: https://console.anthropic.com/settings/keys
-  2. Add to project root .env:
-       ANTHROPIC_API_KEY=sk-ant-xxx
-  3. Run: python 31_llm_propose.py path/to/composite.png
+  Default provider is `claude-cli`: it invokes the locally installed Claude
+  Code CLI (`claude -p`) in headless mode, so usage is billed against the
+  logged-in Claude subscription (Max) — no API key needed. For the API
+  providers, put ANTHROPIC_API_KEY / OPENAI_API_KEY in the project root .env.
 
 Usage:
   python 31_llm_propose.py ../data/composites/cdof2022/composite_tile_2980_33035_g4.png
-  python 31_llm_propose.py --all                # process every composite in the dir
-  python 31_llm_propose.py --dry-run composite.png  # build the prompt + show what would be sent, no API call
+  python 31_llm_propose.py --all                # process every composite in the dir (4 parallel CLI workers)
+  python 31_llm_propose.py --all --provider anthropic   # old API path
+  python 31_llm_propose.py --dry-run composite.png  # build the prompt + show what would be sent, no call
 """
 
 import argparse
 import base64
+import concurrent.futures
 import json
 import os
+import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Provider config — both Claude (Anthropic) and GPT (OpenAI) supported. Same
-# prompt structure, same JSON output schema, same georeferencing logic — only
-# the API client and image-payload format differ. Each feature in the output
-# carries a `provider` tag so the viewer can render them in distinct colors
-# for side-by-side comparison.
+# Provider config — Claude via local CLI (subscription-billed), Claude via
+# Anthropic API, and GPT (OpenAI API). Same prompt structure, same JSON output
+# schema, same georeferencing logic — only the transport differs. Each feature
+# in the output carries a `provider` tag so the viewer can render them in
+# distinct colors for side-by-side comparison. claude-cli results are tagged
+# provider=anthropic (they ARE Claude) so the viewer needs no changes; the
+# raw_log records engine=claude-cli for attribution.
 DEFAULT_MODEL_BY_PROVIDER = {
+    # claude-cli: model alias resolved by the CLI ("sonnet" → current Sonnet).
+    # Billed against the local Claude subscription (Max), not an API key.
+    "claude-cli": "sonnet",
     "anthropic": "claude-sonnet-4-6",
     # Default to gpt-4o for OpenAI: it's vision-capable without the hidden
     # reasoning tokens that gpt-5 spends invisibly (and that can swallow the
@@ -56,9 +65,39 @@ DEFAULT_MODEL_BY_PROVIDER = {
 }
 # Anthropic responses fit comfortably in 2k. OpenAI gpt-5 / o-series models
 # use most tokens on hidden reasoning, so we give the OpenAI path more room.
+# claude-cli manages its own budget; the value is unused there.
 DEFAULT_MAX_TOKENS_BY_PROVIDER = {
+    "claude-cli": 0,
     "anthropic": 2000,
     "openai": 6000,
+}
+
+# JSON Schema handed to `claude --json-schema` so the CLI enforces the output
+# shape (structured_output in the result wrapper) — no fence-stripping needed.
+SUGGESTIONS_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "suggestions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["street_parking", "lot", "courtyard"]},
+                    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                    "reason": {"type": "string"},
+                    "bbox_pct": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 4,
+                        "maxItems": 4,
+                    },
+                },
+                "required": ["kind", "confidence", "reason", "bbox_pct"],
+            },
+        },
+    },
+    "required": ["summary", "suggestions"],
 }
 
 PROMPT_SYSTEM = """You are a Zagreb cartographer reviewing aerial imagery of the city.
@@ -143,9 +182,19 @@ def load_dotenv_minimal(env_path: Path) -> None:
 
 def setup_provider_auth(provider: str) -> str | None:
     """Bridge .env API keys to the right env var for the chosen provider.
-    Reads `.env` from project root once, then walks a few common alias names."""
+    Reads `.env` from project root once, then walks a few common alias names.
+    claude-cli needs no API key — only the `claude` binary and a logged-in
+    subscription — so it returns a sentinel if the binary is on PATH."""
     project_root = Path(__file__).resolve().parent.parent
     load_dotenv_minimal(project_root / ".env")
+
+    if provider == "claude-cli":
+        binary = shutil.which("claude")
+        if binary:
+            log(f"claude CLI found: {binary} (subscription-billed, no API key needed)")
+            return binary
+        log("claude CLI not found on PATH — install Claude Code or use --provider anthropic")
+        return None
 
     if provider == "anthropic":
         token = (
@@ -250,6 +299,84 @@ def call_claude(image_path: Path, model: str, max_tokens: int, meta: dict) -> di
     return parsed
 
 
+def call_claude_cli(image_path: Path, model: str, meta: dict, max_turns: int = 20) -> dict:
+    """Send the composite to Claude through the LOCAL `claude` CLI in headless
+    mode (`claude -p`). Usage is billed against the logged-in Claude
+    subscription (Max plan), not per-token API billing — the wrapper's
+    total_cost_usd is the nominal API-equivalent, reported for reference only.
+
+    The CLI reads the image itself via its Read tool, and --json-schema forces
+    the reply into SUGGESTIONS_JSON_SCHEMA (returned as structured_output).
+    NOTE: --bare is deliberately NOT used — it skips the keychain OAuth lookup
+    and the run fails with "Not logged in"."""
+    user_prompt = PROMPT_USER_TEMPLATE.format(size_m=meta["size_m"], mpp=meta["mpp"])
+    prompt = (
+        f"{PROMPT_SYSTEM}\n\n"
+        f"First use the Read tool to view the image file at: {image_path.resolve()}\n\n"
+        f"{user_prompt}"
+    )
+
+    cmd = [
+        "claude", "-p", prompt,
+        "--output-format", "json",
+        "--json-schema", json.dumps(SUGGESTIONS_JSON_SCHEMA),
+        "--allowedTools", "Read",
+        "--permission-mode", "dontAsk",
+        "--max-turns", str(max_turns),
+        "--model", model,
+        "--no-session-persistence",
+    ]
+
+    # Strip any Anthropic API keys from the child env — if present, the CLI
+    # would silently bill the API key instead of the subscription.
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_KEY", "CLAUDE_API_KEY")}
+
+    log(f"Calling claude CLI ({model}) with composite ({image_path.stat().st_size / 1024:.1f} KiB)…")
+    t0 = time.time()
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
+    if proc.returncode != 0:
+        raise RuntimeError(f"claude CLI exited {proc.returncode}: {proc.stderr[:500] or proc.stdout[:500]}")
+
+    try:
+        wrapper = json.loads(proc.stdout.strip().splitlines()[-1])
+    except (json.JSONDecodeError, IndexError) as exc:
+        raise RuntimeError(f"claude CLI returned unparseable output: {exc}: {proc.stdout[:500]}")
+
+    if wrapper.get("is_error"):
+        raise RuntimeError(f"claude CLI error: {wrapper.get('result', '')[:500]}")
+
+    parsed = wrapper.get("structured_output")
+    if not isinstance(parsed, dict):
+        raise RuntimeError(
+            f"claude CLI returned no structured_output "
+            f"(subtype={wrapper.get('subtype')}): {str(wrapper.get('result'))[:300]}"
+        )
+
+    usage = wrapper.get("usage", {})
+    # The CLI resolves model aliases ("sonnet") to a concrete id — record it.
+    resolved_model = next(iter(wrapper.get("modelUsage", {}) or {}), model)
+    cost = wrapper.get("total_cost_usd", 0.0)
+    log(f"  done in {time.time() - t0:.1f}s, turns={wrapper.get('num_turns')}, "
+        f"nominal_cost=${cost:.3f} (subscription-covered), "
+        f"tokens in/cached/out={usage.get('input_tokens')}/"
+        f"{usage.get('cache_read_input_tokens')}/{usage.get('output_tokens')}")
+
+    parsed["_raw_text"] = json.dumps(parsed, ensure_ascii=False)
+    parsed["_usage"] = {
+        "input_tokens": usage.get("input_tokens"),
+        "cache_read_input_tokens": usage.get("cache_read_input_tokens"),
+        "output_tokens": usage.get("output_tokens"),
+        "nominal_cost_usd": cost,
+    }
+    # Tagged as anthropic so the viewer renders these with the existing teal
+    # style; engine records the actual transport.
+    parsed["_provider"] = "anthropic"
+    parsed["_model"] = resolved_model
+    parsed["_engine"] = "claude-cli"
+    return parsed
+
+
 def call_openai(image_path: Path, model: str, max_tokens: int, meta: dict) -> dict:
     """Send the composite image to GPT (OpenAI vision) and return parsed JSON.
     Uses the chat.completions API with image_url + base64 content. Same prompt
@@ -343,6 +470,8 @@ def call_provider(provider: str, image_path: Path, model: str, max_tokens: int, 
             "_model": model,
             "_usage": {"input_tokens": 0, "output_tokens": 0},
         }
+    if provider == "claude-cli":
+        return call_claude_cli(image_path, model, meta, max_turns=max_tokens or 20)
     if provider == "anthropic":
         return call_claude(image_path, model, max_tokens, meta)
     if provider == "openai":
@@ -393,7 +522,12 @@ def bbox_pct_to_polygon(bbox_pct: list[float], meta: dict) -> dict:
 def parse_proposals(parsed: dict, composite_meta: dict, image_path: Path, provider: str, model: str) -> list[dict]:
     """Convert an LLM's `suggestions` list to a list of GeoJSON Features.
     Each feature carries the provider tag so multi-provider results can coexist
-    in one file without losing attribution."""
+    in one file without losing attribution. The provider/model recorded on the
+    feature come from the parsed result (claude-cli runs are tagged anthropic
+    with the resolved model id, so the viewer needs no changes)."""
+    feature_provider = parsed.get("_provider", provider)
+    feature_model = parsed.get("_model", model)
+    engine = parsed.get("_engine")
     features: list[dict] = []
     for i, sugg in enumerate(parsed.get("suggestions", []) or []):
         try:
@@ -401,19 +535,22 @@ def parse_proposals(parsed: dict, composite_meta: dict, image_path: Path, provid
         except Exception as exc:
             log(f"  skipping suggestion #{i}: {exc}")
             continue
+        props = {
+            "kind": sugg.get("kind", "unknown"),
+            "confidence": sugg.get("confidence", "low"),
+            "reason": sugg.get("reason", ""),
+            "bbox_pct": sugg.get("bbox_pct"),
+            "source_composite": image_path.stem,
+            "provider": feature_provider,
+            "model": feature_model,
+        }
+        if engine:
+            props["engine"] = engine
         features.append({
             "type": "Feature",
-            "id": f"{image_path.stem}/{provider}/{i}",
+            "id": f"{image_path.stem}/{feature_provider}/{i}",
             "geometry": geom,
-            "properties": {
-                "kind": sugg.get("kind", "unknown"),
-                "confidence": sugg.get("confidence", "low"),
-                "reason": sugg.get("reason", ""),
-                "bbox_pct": sugg.get("bbox_pct"),
-                "source_composite": image_path.stem,
-                "provider": provider,
-                "model": model,
-            },
+            "properties": props,
         })
     return features
 
@@ -451,9 +588,17 @@ def main() -> int:
     )
     parser.add_argument(
         "--provider",
-        choices=["anthropic", "openai", "both"],
-        default="anthropic",
-        help="LLM provider (default: anthropic). 'both' runs each provider in turn for A/B comparison.",
+        choices=["claude-cli", "anthropic", "openai", "both"],
+        default="claude-cli",
+        help="LLM provider (default: claude-cli — local Claude Code CLI, billed against the "
+             "Claude subscription instead of API tokens). 'anthropic'/'openai' use API keys. "
+             "'both' runs anthropic + openai in turn for A/B comparison.",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Parallel requests (default: 4 for claude-cli, 1 for API providers).",
     )
     parser.add_argument(
         "--model",
@@ -464,7 +609,14 @@ def main() -> int:
         "--max-tokens",
         type=int,
         default=None,
-        help="Override per-provider default (anthropic: 2000, openai: 6000). gpt-5 needs 8000+.",
+        help="Override per-provider default (anthropic: 2000, openai: 6000). gpt-5 needs 8000+. "
+             "For claude-cli this sets --max-turns instead (default 20; dense city-core tiles may need 40).",
+    )
+    parser.add_argument(
+        "--skip-processed",
+        action="store_true",
+        help="Skip composites already present in the output file (per raw_log). "
+             "Makes interrupted city-scale runs resumable.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Show what would be sent without calling the API")
     parser.add_argument("--throttle-ms", type=int, default=500, help="Sleep between API calls (default: 500)")
@@ -540,38 +692,77 @@ def main() -> int:
             existing_features = []
             existing_meta_log = []
 
+    if args.skip_processed and existing_meta_log:
+        already = {entry.get("composite") for entry in existing_meta_log if entry.get("n_features") is not None}
+        before = len(composite_paths)
+        composite_paths = [p for p in composite_paths if p.name not in already]
+        log(f"--skip-processed: {before - len(composite_paths)} already done, {len(composite_paths)} to go")
+        if not composite_paths:
+            log("Nothing left to process.")
+            return 0
+
     new_features: list[dict] = []
     raw_log: list[dict] = []
 
     for prov in providers:
         model = args.model or DEFAULT_MODEL_BY_PROVIDER[prov]
         max_tok = args.max_tokens or DEFAULT_MAX_TOKENS_BY_PROVIDER[prov]
-        log(f"=== provider: {prov} ({model}, max_tokens={max_tok}) ===")
+        workers = args.workers or (4 if prov == "claude-cli" else 1)
+        log(f"=== provider: {prov} ({model}, max_tokens={max_tok}, workers={workers}) ===")
 
-        for i, composite_path in enumerate(composite_paths, 1):
-            log(f"[{i}/{len(composite_paths)}] {composite_path.name}")
+        def run_one(composite_path: Path) -> tuple[Path, list[dict], dict] | None:
             try:
                 features, parsed = process_composite(
                     composite_path, prov, model, max_tok, args.dry_run
                 )
+                return composite_path, features, parsed
             except Exception as exc:
-                log(f"  ERROR: {type(exc).__name__}: {exc}")
+                log(f"  ERROR {composite_path.name}: {type(exc).__name__}: {exc}")
+                return None
+
+        results: list[tuple[Path, list[dict], dict] | None] = []
+        if workers > 1 and not args.dry_run:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {pool.submit(run_one, p): p for p in composite_paths}
+                done = 0
+                for fut in concurrent.futures.as_completed(futures):
+                    done += 1
+                    res = fut.result()
+                    if res:
+                        log(f"[{done}/{len(composite_paths)}] {res[0].name} → {len(res[1])} suggestions")
+                    results.append(res)
+        else:
+            for i, composite_path in enumerate(composite_paths, 1):
+                log(f"[{i}/{len(composite_paths)}] {composite_path.name}")
+                res = run_one(composite_path)
+                if res:
+                    log(f"  → {len(res[1])} suggestions")
+                results.append(res)
+                if i < len(composite_paths) and not args.dry_run:
+                    time.sleep(args.throttle_ms / 1000.0)
+
+        prov_cost = 0.0
+        for res in results:
+            if not res:
                 continue
-            log(f"  → {len(features)} suggestions")
+            composite_path, features, parsed = res
             if parsed.get("summary"):
-                log(f"  summary: {parsed['summary']}")
+                log(f"  {composite_path.name}: {parsed['summary']}")
             new_features.extend(features)
+            prov_cost += (parsed.get("_usage") or {}).get("nominal_cost_usd") or 0.0
             raw_log.append({
                 "composite": composite_path.name,
-                "provider": prov,
-                "model": model,
+                "provider": parsed.get("_provider", prov),
+                "engine": parsed.get("_engine"),
+                "model": parsed.get("_model", model),
                 "summary": parsed.get("summary"),
                 "n_features": len(features),
                 "raw_text": parsed.get("_raw_text"),
                 "usage": parsed.get("_usage"),
             })
-            if i < len(composite_paths) and not args.dry_run:
-                time.sleep(args.throttle_ms / 1000.0)
+        if prov == "claude-cli":
+            log(f"=== {prov} total nominal cost: ${prov_cost:.2f} (API-equivalent; "
+                f"actually billed to Claude subscription) ===")
 
     # Replace-by-id: drop any existing features whose id matches a freshly
     # produced one (so re-runs of the same composite/provider don't duplicate).

@@ -166,8 +166,9 @@ html, body {
 .swatch-street-view-pending { background: #8b5cf6; border-color: #4c1d95; }
 .swatch-street-view-suspect { background: #fbbf24; border-color: #b45309; }
 .swatch-llm { background: #14b8a6; border-color: #134e4a; }
-.swatch-llm-anthropic { background: #14b8a6; border-color: #134e4a; }
-.swatch-llm-openai { background: #ec4899; border-color: #831843; }
+.swatch-llm-pending { background: #14b8a6; border-color: #134e4a; }
+.swatch-llm-confirmed { background: #16a34a; border-color: #14532d; }
+.swatch-llm-rejected { background: #9ca3af; border-color: #4b5563; }
 
 .layer-group {
   margin-top: 4px;
@@ -503,6 +504,48 @@ html, body {
 
 .popup-table td { padding: 2px 0; }
 .popup-table a { color: #2563eb; }
+
+/* Review buttons in the LLM-candidate popup (confirm / reject / revert) */
+.review-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.review-btn {
+  flex: 1;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+}
+
+.review-confirm { background: #16a34a; }
+.review-confirm:hover { background: #15803d; }
+.review-reject { background: #dc2626; }
+.review-reject:hover { background: #b91c1c; }
+.review-revert { background: #6b7280; }
+.review-revert:hover { background: #4b5563; }
+
+/* Crosslink nav in the topbar (map ↔ review UI ↔ diagnostic viewers) */
+.topbar-nav {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.topbar-nav a {
+  font-size: 11px;
+  color: #93c5fd;
+  text-decoration: none;
+}
+
+.topbar-nav a:hover { text-decoration: underline; }
+.topbar-nav a.topbar-nav-ext { color: #aaa; }
 
 a.popup-review-link {
   display: inline-block;

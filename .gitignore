@@ -47,3 +47,6 @@ street-view/out/
 .cache/
 *.tif.aux.xml
 street-view/data/osm
+
+# Local symlink so unos/review.html (the prod path) works in local dev too
+unos

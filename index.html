@@ -20,14 +20,19 @@
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-  <link rel="stylesheet" href="index.css?v=12" />
+  <link rel="stylesheet" href="index.css?v=13" />
 </head>
 <body>
   <div id="map" aria-label="Karta parkirališta u Zagrebu"></div>
 
   <header id="topbar">
     <h1><span class="topbar-title-text">Zagrebačka parkirališta</span> <span class="topbar-tagline">Sveobuhvatni prikaz parkirališnih mjesta u gradu</span></h1>
-    <a href="https://zagreb.lol" style="font-size:11px;color:#aaa;text-decoration:none;white-space:nowrap;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">Dio projekta zagreb.lol</a>
+    <nav class="topbar-nav">
+      <a href="unos/review.html">Pregled ulica</a>
+      <a href="lane-widths/viewer.html">Širine traka</a>
+      <a href="yolo-street-view/viewer.html">YOLO pregled</a>
+      <a href="https://zagreb.lol" class="topbar-nav-ext">Dio projekta zagreb.lol</a>
+    </nav>
     <div class="formality-filter">
       <label class="formality-label">
         <input type="checkbox" id="filter-formal" checked />
@@ -108,18 +113,24 @@
       <span class="count" id="count-ml">—</span>
     </label>
     <div class="layer-group">
-      <div class="layer-group-label">LLM kandidati (Faza 5)</div>
+      <div class="layer-group-label">LLM kandidati (Faza 5) <span class="count" id="count-llm-all">—</span></div>
       <label class="layer-toggle layer-toggle-sub">
-        <input type="checkbox" id="toggle-llm-anthropic" checked disabled />
-        <span class="swatch swatch-llm-anthropic"></span>
-        <span class="layer-label">Model 1</span>
-        <span class="count" id="count-llm-anthropic">—</span>
+        <input type="checkbox" id="toggle-llm-pending" checked disabled />
+        <span class="swatch swatch-llm-pending"></span>
+        <span class="layer-label">Čeka</span>
+        <span class="count" id="count-llm-pending">—</span>
       </label>
       <label class="layer-toggle layer-toggle-sub">
-        <input type="checkbox" id="toggle-llm-openai" checked disabled />
-        <span class="swatch swatch-llm-openai"></span>
-        <span class="layer-label">Model 2</span>
-        <span class="count" id="count-llm-openai">—</span>
+        <input type="checkbox" id="toggle-llm-confirmed" checked disabled />
+        <span class="swatch swatch-llm-confirmed"></span>
+        <span class="layer-label">Potvrđeno</span>
+        <span class="count" id="count-llm-confirmed">—</span>
+      </label>
+      <label class="layer-toggle layer-toggle-sub">
+        <input type="checkbox" id="toggle-llm-rejected" disabled />
+        <span class="swatch swatch-llm-rejected"></span>
+        <span class="layer-label">Odbijeno</span>
+        <span class="count" id="count-llm-rejected">—</span>
       </label>
     </div>
     <label class="layer-toggle">
@@ -172,6 +183,6 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="js/map.js?v=14"></script>
+  <script src="js/map.js?v=15"></script>
 </body>
 </html>
