@@ -38,12 +38,15 @@ import base64
 import concurrent.futures
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+from progress_status import report_progress
 
 # Provider config — Claude via local CLI (subscription-billed), Claude via
 # Anthropic API, and GPT (OpenAI API). Same prompt structure, same JSON output
@@ -56,6 +59,9 @@ DEFAULT_MODEL_BY_PROVIDER = {
     # claude-cli: model alias resolved by the CLI ("sonnet" → current Sonnet).
     # Billed against the local Claude subscription (Max), not an API key.
     "claude-cli": "sonnet",
+    # codex-cli: None = the codex config default (ChatGPT accounts only allow
+    # that model set). Billed against the ChatGPT subscription.
+    "codex-cli": None,
     "anthropic": "claude-sonnet-4-6",
     # Default to gpt-4o for OpenAI: it's vision-capable without the hidden
     # reasoning tokens that gpt-5 spends invisibly (and that can swallow the
@@ -68,12 +74,15 @@ DEFAULT_MODEL_BY_PROVIDER = {
 # claude-cli manages its own budget; the value is unused there.
 DEFAULT_MAX_TOKENS_BY_PROVIDER = {
     "claude-cli": 0,
+    "codex-cli": 0,
     "anthropic": 2000,
     "openai": 6000,
 }
 
 # JSON Schema handed to `claude --json-schema` so the CLI enforces the output
 # shape (structured_output in the result wrapper) — no fence-stripping needed.
+# polygon_pct is a FLAT alternating x,y list (nested pair-arrays made the CLI's
+# structured-output enforcement flaky); 8-16 numbers = 4-8 vertices.
 SUGGESTIONS_JSON_SCHEMA = {
     "type": "object",
     "properties": {
@@ -86,14 +95,14 @@ SUGGESTIONS_JSON_SCHEMA = {
                     "kind": {"type": "string", "enum": ["street_parking", "lot", "courtyard"]},
                     "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
                     "reason": {"type": "string"},
-                    "bbox_pct": {
+                    "polygon_pct": {
                         "type": "array",
                         "items": {"type": "number"},
-                        "minItems": 4,
-                        "maxItems": 4,
+                        "minItems": 8,
+                        "maxItems": 16,
                     },
                 },
-                "required": ["kind", "confidence", "reason", "bbox_pct"],
+                "required": ["kind", "confidence", "reason", "polygon_pct"],
             },
         },
     },
@@ -147,16 +156,18 @@ Return STRICT JSON, no prose around it. Schema:
       "kind": "street_parking" | "lot" | "courtyard",
       "confidence": "high" | "medium" | "low",
       "reason": "one sentence explaining the evidence",
-      "bbox_pct": [x_min, y_min, x_max, y_max]
+      "polygon_pct": [x1, y1, x2, y2, x3, y3, x4, y4, ...]
     }}
   ]
 }}
 
-bbox_pct is the proposed area as percentages of image dimensions, where
-[0, 0] is top-left and [1, 1] is bottom-right. So bbox_pct of
-[0.40, 0.55, 0.55, 0.65] means a rectangle from 40%–55% horizontally and
-55%–65% vertically. Be precise about the bbox — it's how we re-project the
-proposal back to GPS coordinates.
+polygon_pct is a TIGHT polygon tracing the actual parking surface outline —
+NOT a bounding box. It should hug the row of cars / pavement edge, may be
+rotated relative to the image axes, and has 4-8 vertices (8-16 numbers, flat
+alternating x,y). Coordinates are fractions of image dimensions: [0, 0] is
+top-left, [1, 1] is bottom-right. Do NOT repeat the first vertex at the end.
+For a row of parked cars, the polygon is a thin slanted strip along the row.
+Be precise — the vertices are re-projected directly to GPS coordinates.
 
 If you find nothing clearly missing, return an empty suggestions array. That's
 a valid and useful answer."""
@@ -194,6 +205,14 @@ def setup_provider_auth(provider: str) -> str | None:
             log(f"claude CLI found: {binary} (subscription-billed, no API key needed)")
             return binary
         log("claude CLI not found on PATH — install Claude Code or use --provider anthropic")
+        return None
+
+    if provider == "codex-cli":
+        binary = shutil.which("codex")
+        if binary:
+            log(f"codex CLI found: {binary} (ChatGPT-subscription billed, no API key needed)")
+            return binary
+        log("codex CLI not found on PATH — install Codex or use --provider openai")
         return None
 
     if provider == "anthropic":
@@ -377,6 +396,83 @@ def call_claude_cli(image_path: Path, model: str, meta: dict, max_turns: int = 2
     return parsed
 
 
+def _strictify_schema(node):
+    """OpenAI structured-output strict mode requires every property in
+    `required` and additionalProperties: false on every object. Recursively
+    produce a strict copy of a JSON schema."""
+    if isinstance(node, list):
+        return [_strictify_schema(v) for v in node]
+    if isinstance(node, dict):
+        out = {k: _strictify_schema(v) for k, v in node.items()}
+        if out.get("type") == "object" and "properties" in out:
+            out["required"] = list(out["properties"].keys())
+            out["additionalProperties"] = False
+        return out
+    return node
+
+
+def call_codex_cli(image_path: Path, model: str | None, meta: dict) -> dict:
+    """Send the composite through the LOCAL Codex CLI (`codex exec`) — billed
+    against the logged-in ChatGPT subscription, not an API key. The image is
+    attached natively via -i and --output-schema forces the reply into a
+    strict-mode variant of SUGGESTIONS_JSON_SCHEMA."""
+    import tempfile
+
+    user_prompt = PROMPT_USER_TEMPLATE.format(size_m=meta["size_m"], mpp=meta["mpp"])
+    prompt = f"{PROMPT_SYSTEM}\n\nThe attached image is the composite to analyse.\n\n{user_prompt}"
+
+    # Strip OpenAI API keys so codex bills the subscription, not a key.
+    env = {k: v for k, v in os.environ.items() if k not in ("OPENAI_API_KEY", "OPENAI_KEY", "OAI_API_KEY")}
+
+    with tempfile.TemporaryDirectory(prefix="codex-aerial-") as tmp:
+        schema_path = Path(tmp) / "schema.json"
+        schema_path.write_text(json.dumps(_strictify_schema(SUGGESTIONS_JSON_SCHEMA)))
+        out_path = Path(tmp) / "out.json"
+
+        cmd = [
+            "codex", "exec",
+            "-i", str(image_path.resolve()),
+            "--output-schema", str(schema_path),
+            "-o", str(out_path),
+            "--ephemeral", "--skip-git-repo-check",
+            "-s", "read-only",
+            "-c", 'model_reasoning_effort="medium"',
+            "--color", "never",
+        ]
+        if model:
+            cmd += ["-m", model]
+        cmd.append(prompt)
+
+        log(f"Calling codex CLI ({model or 'config default'}) with composite ({image_path.stat().st_size / 1024:.1f} KiB)…")
+        t0 = time.time()
+        # stdin MUST be devnull: codex exec treats a piped-open stdin as
+        # "prompt will arrive on stdin" and waits for EOF forever.
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600,
+                              env=env, stdin=subprocess.DEVNULL)
+        if proc.returncode != 0:
+            raise RuntimeError(f"codex CLI exited {proc.returncode}: {(proc.stderr or proc.stdout)[-400:]}")
+        try:
+            parsed = json.loads(out_path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"codex final message unparseable: {exc}: {proc.stdout[-300:]}")
+
+    # Human-readable header/footer land on stderr when stdout isn't a TTY.
+    combined = proc.stdout + "\n" + proc.stderr
+    tokens_m = re.search(r"tokens used\s*\n\s*([\d,]+)", combined, re.IGNORECASE)
+    model_m = re.search(r"^model:\s*(\S+)", combined, re.MULTILINE)
+    total_tokens = int(tokens_m.group(1).replace(",", "")) if tokens_m else None
+    resolved_model = model_m.group(1) if model_m else (model or "codex-config-default")
+
+    log(f"  done in {time.time() - t0:.1f}s, tokens={total_tokens} (ChatGPT-subscription covered)")
+
+    parsed["_raw_text"] = json.dumps(parsed, ensure_ascii=False)
+    parsed["_usage"] = {"total_tokens": total_tokens}
+    parsed["_provider"] = "openai"
+    parsed["_model"] = resolved_model
+    parsed["_engine"] = "codex-cli"
+    return parsed
+
+
 def call_openai(image_path: Path, model: str, max_tokens: int, meta: dict) -> dict:
     """Send the composite image to GPT (OpenAI vision) and return parsed JSON.
     Uses the chat.completions API with image_url + base64 content. Same prompt
@@ -472,6 +568,8 @@ def call_provider(provider: str, image_path: Path, model: str, max_tokens: int, 
         }
     if provider == "claude-cli":
         return call_claude_cli(image_path, model, meta, max_turns=max_tokens or 20)
+    if provider == "codex-cli":
+        return call_codex_cli(image_path, model, meta)
     if provider == "anthropic":
         return call_claude(image_path, model, max_tokens, meta)
     if provider == "openai":
@@ -479,43 +577,31 @@ def call_provider(provider: str, image_path: Path, model: str, max_tokens: int, 
     raise ValueError(f"Unknown provider: {provider}")
 
 
-def bbox_pct_to_polygon(bbox_pct: list[float], meta: dict) -> dict:
-    """Convert a [x_min, y_min, x_max, y_max] image-space pct (0..1) to a
-    WGS84 GeoJSON polygon, using the composite's bbox metadata. The result is
-    a closed rectangle (5 coords) in lon/lat order."""
-    if not bbox_pct or len(bbox_pct) != 4:
-        raise ValueError(f"bbox_pct must be [x_min, y_min, x_max, y_max], got {bbox_pct}")
-    x0, y0, x1, y1 = [float(v) for v in bbox_pct]
-    # Clamp to [0,1] in case the model went a hair outside
-    x0 = max(0.0, min(x0, 1.0))
-    y0 = max(0.0, min(y0, 1.0))
-    x1 = max(0.0, min(x1, 1.0))
-    y1 = max(0.0, min(y1, 1.0))
-    if x0 >= x1 or y0 >= y1:
-        raise ValueError(f"degenerate bbox_pct {bbox_pct}")
+def polygon_pct_to_polygon(polygon_pct: list[float], meta: dict) -> dict:
+    """Convert a flat [x1, y1, x2, y2, …] image-space vertex list (0..1) to a
+    WGS84 GeoJSON polygon, using the composite's bbox metadata. Each vertex is
+    mapped independently so the polygon keeps its orientation (unlike the old
+    axis-aligned bbox rectangles)."""
+    if not polygon_pct or len(polygon_pct) < 8 or len(polygon_pct) % 2 != 0:
+        raise ValueError(f"polygon_pct must be a flat list of >= 4 x,y pairs, got {polygon_pct}")
+    verts = [
+        (max(0.0, min(float(polygon_pct[i]), 1.0)),
+         max(0.0, min(float(polygon_pct[i + 1]), 1.0)))
+        for i in range(0, len(polygon_pct), 2)
+    ]
+    if len({v for v in verts}) < 3:
+        raise ValueError(f"degenerate polygon_pct {polygon_pct}")
 
-    # Map image-space (0..1, top-down) to EPSG:3765 bbox (bottom-up).
-    bbox = meta["bbox_3765"]  # [minx, miny, maxx, maxy]
-    minx, miny, maxx, maxy = bbox
+    # Map image-space (0..1, top-down) to EPSG:3765 (bottom-up y).
+    minx, miny, maxx, maxy = meta["bbox_3765"]
     span_x = maxx - minx
     span_y = maxy - miny
-    # Image y is top-down; geographic y is bottom-up. Flip.
-    geo_x0 = minx + x0 * span_x
-    geo_x1 = minx + x1 * span_x
-    geo_y0 = maxy - y1 * span_y  # bottom edge of bbox in geographic Y
-    geo_y1 = maxy - y0 * span_y  # top edge
 
-    # Reproject the 4 corners to WGS84
     from pyproj import Transformer
     to_4326 = Transformer.from_crs("EPSG:3765", "EPSG:4326", always_xy=True).transform
-    corners_3765 = [
-        (geo_x0, geo_y0),
-        (geo_x1, geo_y0),
-        (geo_x1, geo_y1),
-        (geo_x0, geo_y1),
-        (geo_x0, geo_y0),  # close the ring
-    ]
-    coords = [list(to_4326(x, y)) for x, y in corners_3765]
+    ring_3765 = [(minx + x * span_x, maxy - y * span_y) for x, y in verts]
+    ring_3765.append(ring_3765[0])  # close the ring
+    coords = [list(to_4326(x, y)) for x, y in ring_3765]
     return {"type": "Polygon", "coordinates": [coords]}
 
 
@@ -530,16 +616,22 @@ def parse_proposals(parsed: dict, composite_meta: dict, image_path: Path, provid
     engine = parsed.get("_engine")
     features: list[dict] = []
     for i, sugg in enumerate(parsed.get("suggestions", []) or []):
+        poly_pct = sugg.get("polygon_pct")
         try:
-            geom = bbox_pct_to_polygon(sugg.get("bbox_pct"), composite_meta)
+            geom = polygon_pct_to_polygon(poly_pct, composite_meta)
         except Exception as exc:
             log(f"  skipping suggestion #{i}: {exc}")
             continue
+        # Envelope of the polygon in image space — the viewer's composite-crop
+        # popup preview is bbox-based, so keep providing one.
+        xs = [poly_pct[k] for k in range(0, len(poly_pct), 2)]
+        ys = [poly_pct[k] for k in range(1, len(poly_pct), 2)]
         props = {
             "kind": sugg.get("kind", "unknown"),
             "confidence": sugg.get("confidence", "low"),
             "reason": sugg.get("reason", ""),
-            "bbox_pct": sugg.get("bbox_pct"),
+            "polygon_pct": poly_pct,
+            "bbox_pct": [min(xs), min(ys), max(xs), max(ys)],
             "source_composite": image_path.stem,
             "provider": feature_provider,
             "model": feature_model,
@@ -588,11 +680,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--provider",
-        choices=["claude-cli", "anthropic", "openai", "both"],
+        choices=["claude-cli", "codex-cli", "anthropic", "openai", "both"],
         default="claude-cli",
         help="LLM provider (default: claude-cli — local Claude Code CLI, billed against the "
-             "Claude subscription instead of API tokens). 'anthropic'/'openai' use API keys. "
-             "'both' runs anthropic + openai in turn for A/B comparison.",
+             "Claude subscription). 'codex-cli' uses the local Codex CLI (ChatGPT subscription). "
+             "'anthropic'/'openai' use API keys. 'both' runs anthropic + openai for A/B.",
     )
     parser.add_argument(
         "--workers",
@@ -707,7 +799,7 @@ def main() -> int:
     for prov in providers:
         model = args.model or DEFAULT_MODEL_BY_PROVIDER[prov]
         max_tok = args.max_tokens or DEFAULT_MAX_TOKENS_BY_PROVIDER[prov]
-        workers = args.workers or (4 if prov == "claude-cli" else 1)
+        workers = args.workers or (4 if prov in ("claude-cli", "codex-cli") else 1)
         log(f"=== provider: {prov} ({model}, max_tokens={max_tok}, workers={workers}) ===")
 
         def run_one(composite_path: Path) -> tuple[Path, list[dict], dict] | None:
@@ -731,6 +823,8 @@ def main() -> int:
                     if res:
                         log(f"[{done}/{len(composite_paths)}] {res[0].name} → {len(res[1])} suggestions")
                     results.append(res)
+                    report_progress("aerial-llm", done, len(composite_paths),
+                                    message=futures[fut].name, area=prov)
         else:
             for i, composite_path in enumerate(composite_paths, 1):
                 log(f"[{i}/{len(composite_paths)}] {composite_path.name}")
@@ -738,8 +832,12 @@ def main() -> int:
                 if res:
                     log(f"  → {len(res[1])} suggestions")
                 results.append(res)
+                report_progress("aerial-llm", i, len(composite_paths),
+                                message=composite_path.name, area=prov)
                 if i < len(composite_paths) and not args.dry_run:
                     time.sleep(args.throttle_ms / 1000.0)
+        report_progress("aerial-llm", len(composite_paths), len(composite_paths),
+                        message="finished", area=prov, done=True)
 
         prov_cost = 0.0
         for res in results:

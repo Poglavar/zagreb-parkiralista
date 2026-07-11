@@ -10,8 +10,11 @@ import { fetchStreetViewImages } from "./fetch-street-view-images.mjs";
 import { analyzeWithOpenAi } from "./analyze-openai.mjs";
 import { submitOpenAiBatch } from "./submit-openai-batch.mjs";
 import { importOpenAiBatch } from "./import-openai-batch.mjs";
+import { analyzeWithClaudeCli } from "./analyze-claude-cli.mjs";
+import { analyzeWithCodexCli } from "./analyze-codex-cli.mjs";
 
-const ROAD_WIDTH_SOURCE = resolveFrom(import.meta.url, "../../../zagreb-road-widths/data/road-width-zagreb.json");
+// Repo was renamed from zagreb-road-widths to zagreb-ulice; data now lives under sirine/.
+const ROAD_WIDTH_SOURCE = resolveFrom(import.meta.url, "../../../zagreb-ulice/sirine/data/road-width-zagreb.json");
 const CADASTRE_ENV = resolveFrom(import.meta.url, "../../../cadastre-data/api/.env");
 
 function ts() {
@@ -25,9 +28,12 @@ function log(msg) {
 function parseArgs(argv) {
   const args = {
     area: null,
+    engine: "claude-cli",  // claude-cli (subscription-billed, default) | openai-batch
     chunkSize: 50,
     maxChunks: 1,
-    model: "gpt-5.4",
+    model: null,           // default depends on engine: sonnet / gpt-5.4
+    workers: 3,
+    limit: null,
     dryRun: true,
     step: null,
     help: false
@@ -35,14 +41,25 @@ function parseArgs(argv) {
 
   for (let i = 2; i < argv.length; i += 1) {
     if (argv[i] === "--area") args.area = argv[++i];
+    else if (argv[i] === "--engine") args.engine = argv[++i];
     else if (argv[i] === "--chunk-size") args.chunkSize = Number(argv[++i]);
     else if (argv[i] === "--max-chunks") args.maxChunks = Number(argv[++i]);
     else if (argv[i] === "--model") args.model = argv[++i];
+    else if (argv[i] === "--workers") args.workers = Number(argv[++i]);
+    else if (argv[i] === "--limit") args.limit = Number(argv[++i]);
     else if (argv[i] === "--write") args.dryRun = false;
     else if (argv[i] === "--step") args.step = argv[++i];
     else if (argv[i] === "--help" || argv[i] === "-h") args.help = true;
     else throw new Error(`Unknown argument: ${argv[i]}`);
   }
+
+  if (!["claude-cli", "codex-cli", "openai-batch"].includes(args.engine)) {
+    throw new Error(`Unknown engine: ${args.engine} (use claude-cli, codex-cli or openai-batch)`);
+  }
+  // codex-cli deliberately gets no default model — it uses the codex config
+  // default (ChatGPT accounts only allow that model set).
+  if (!args.model && args.engine === "claude-cli") args.model = "sonnet";
+  if (!args.model && args.engine === "openai-batch") args.model = "gpt-5.4";
 
   return args;
 }
@@ -51,25 +68,29 @@ function printHelp() {
   console.log(`Usage: node scripts/process-area.mjs --area "Trnje" [options]
 
 Chains all pipeline steps for a city area:
-  1. selection   Generate segment selection from zagreb-road-widths data
+  1. selection   Generate segment selection from road-width data
   2. candidates  Prepare Street View capture candidates
   3. metadata    Fetch Street View metadata (requires GOOGLE_MAPS_API_KEY)
   4. images      Fetch Street View images (requires GOOGLE_MAPS_API_KEY)
-  5. batch-jsonl Generate OpenAI Batch API JSONL
-  6. submit      Submit batch to OpenAI (requires OPENAI_API_KEY)
-  7. import      Check/import batch results
-  8. ingest      Ingest results to database (requires DATABASE_URL)
+  5. analysis — depends on --engine:
+     claude-cli (default): analyze     Local Claude Code CLI, Claude-subscription billed
+     codex-cli:            analyze     Local Codex CLI, ChatGPT-subscription billed
+     openai-batch:         batch-jsonl / submit / import  (requires OPENAI_API_KEY)
+  6. ingest      Ingest results to database (requires DATABASE_URL)
 
 Options:
-  --area NAME        Area name to process (matches l1/l2/l3 from zagreb-road-widths)
-  --chunk-size N     Batch chunk size (default: 50)
-  --max-chunks N     Max chunks to submit (default: 1)
-  --model MODEL      OpenAI model (default: gpt-5.4)
+  --area NAME        Area name to process (matches l1/l2/l3 from road-width data)
+  --engine NAME      claude-cli (default), codex-cli, or openai-batch
+  --model MODEL      Model override (default: sonnet / codex config default / gpt-5.4)
+  --workers N        Parallel CLI calls for claude-cli engine (default: 3)
+  --limit N          Analyze at most N segments (claude-cli engine; for cost testing)
+  --chunk-size N     Batch chunk size (default: 50, openai-batch only)
+  --max-chunks N     Max chunks to submit (default: 1, openai-batch only)
   --write            Actually write to DB (default: dry run for ingest step)
-  --step NAME        Run only a specific step (e.g. --step metadata)
+  --step NAME        Run only a specific step (e.g. --step metadata, --step analyze)
   --help             Show this message
 
-Requires GOOGLE_MAPS_API_KEY and OPENAI_API_KEY in the environment.
+Requires GOOGLE_MAPS_API_KEY (steps 3-4); OPENAI_API_KEY only for --engine openai-batch.
 DATABASE_URL is loaded from cadastre-data/api/.env for the ingest step.
 `);
 }
@@ -82,8 +103,9 @@ function slugify(name) {
     .replace(/^-+|-+$/g, "");
 }
 
-// Build output paths scoped to the area
-function areaPaths(areaSlug) {
+// Build output paths scoped to the area. The analyses filename carries the
+// engine so a claude-cli run never collides with an earlier openai batch run.
+function areaPaths(areaSlug, engine) {
   const base = resolveFrom(import.meta.url, `../out/${areaSlug}`);
   return {
     base,
@@ -94,7 +116,10 @@ function areaPaths(areaSlug) {
     imageDir: path.join(base, "images"),
     batchJsonl: path.join(base, "openai-batch.jsonl"),
     tracker: path.join(base, "openai-batch-status.json"),
-    analyses: path.join(base, "openai-analyses.json")
+    analyses: path.join(base,
+      engine === "claude-cli" ? "claude-cli-analyses.json"
+      : engine === "codex-cli" ? "codex-cli-analyses.json"
+      : "openai-analyses.json")
   };
 }
 
@@ -158,7 +183,7 @@ async function main() {
 
   const areaName = args.area;
   const areaSlug = slugify(areaName);
-  const paths = areaPaths(areaSlug);
+  const paths = areaPaths(areaSlug, args.engine);
 
   log(`Processing area: ${areaName} (slug: ${areaSlug})`);
   log(`Output directory: ${paths.base}`);
@@ -216,8 +241,32 @@ async function main() {
     if (!ok) return;
   }
 
+  // Step 5 (claude-cli / codex-cli engines): analyze through a local CLI.
+  // Subscription-billed, resumable (both engines flush after every segment and
+  // skip already-ok ones on restart), replaces batch-jsonl/submit/import.
+  if (args.engine !== "openai-batch" && (shouldRun("analyze") || shouldRun("batch-jsonl") || shouldRun("submit") || shouldRun("import"))) {
+    if (args.step && args.step !== "analyze") {
+      log(`NOTE: step "${args.step}" belongs to the openai-batch engine; running "analyze" instead (engine=${args.engine}).`);
+    }
+    const label = args.engine === "claude-cli" ? "Analyze via Claude Code CLI" : "Analyze via Codex CLI";
+    const ok = await runStep("analyze", label, null, async () => {
+      const analyzeOpts = {
+        candidates: paths.candidates,
+        images: paths.images,
+        out: paths.analyses,
+        model: args.model,
+        workers: args.workers,
+        limit: args.limit,
+        segmentId: null
+      };
+      if (args.engine === "claude-cli") await analyzeWithClaudeCli(analyzeOpts);
+      else await analyzeWithCodexCli({ ...analyzeOpts, effort: "medium" });
+    });
+    if (!ok) return;
+  }
+
   // Step 5: Generate batch JSONL
-  if (shouldRun("batch-jsonl")) {
+  if (args.engine === "openai-batch" && shouldRun("batch-jsonl")) {
     const ok = await runStep("batch-jsonl", "Generate batch JSONL", paths.batchJsonl, async () => {
       await analyzeWithOpenAi({
         candidates: paths.candidates,
@@ -236,7 +285,7 @@ async function main() {
   }
 
   // Step 6: Submit batch
-  if (shouldRun("submit")) {
+  if (args.engine === "openai-batch" && shouldRun("submit")) {
     const ok = await runStep("submit", "Submit OpenAI batch", null, async () => {
       if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not set in environment");
       // Don't skip if tracker exists — it tracks partial progress
@@ -252,7 +301,7 @@ async function main() {
   }
 
   // Step 7: Import batch results
-  if (shouldRun("import")) {
+  if (args.engine === "openai-batch" && shouldRun("import")) {
     const ok = await runStep("import", "Import batch results", paths.analyses, async () => {
       if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not set in environment");
       await importOpenAiBatch({
@@ -282,8 +331,8 @@ async function main() {
         "--analyses", paths.analyses,
         "--images", paths.images,
         "--database-url", databaseUrl,
-        "--provider", "openai",
-        "--model", args.model
+        "--provider", args.engine === "claude-cli" ? "anthropic" : "openai",
+        "--model", args.model || "codex-config-default"
       ];
       if (!args.dryRun) ingestArgs.push("--write");
       execFileSync("node", ingestArgs, { stdio: "inherit" });

@@ -5,7 +5,8 @@ import { readJson, resolveFrom, writeJson } from "./lib/io.mjs";
 
 function parseArgs(argv) {
   const args = {
-    source: resolveFrom(import.meta.url, "../../../zagreb-road-widths/data/road-width-zagreb.json"),
+    // Repo was renamed from zagreb-road-widths to zagreb-ulice; data now lives under sirine/.
+    source: resolveFrom(import.meta.url, "../../../zagreb-ulice/sirine/data/road-width-zagreb.json"),
     selection: resolveFrom(import.meta.url, "../data/tresnjevka-batch-selection.mjs"),
     out: resolveFrom(import.meta.url, "../data/selected-segments.geojson")
   };

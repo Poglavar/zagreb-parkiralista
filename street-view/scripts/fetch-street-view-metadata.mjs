@@ -2,6 +2,13 @@
 import { pathToFileURL } from "url";
 import { waitForRequestGap } from "./lib/rate-limit.mjs";
 import { readJson, resolveFrom, writeJson } from "./lib/io.mjs";
+import { reportProgress } from "./lib/progress.mjs";
+
+// Pull the area slug out of an out/<slug>/... path so the heartbeat can label the run.
+function areaFromPath(p) {
+  const m = /out\/([^/]+)\//.exec(p || "");
+  return m ? m[1] : null;
+}
 
 function parseArgs(argv) {
   const args = {
@@ -63,8 +70,10 @@ export async function fetchStreetViewMetadata({ input, out, keyEnv, delayMs, seg
     `Street View metadata preflight: ${captures.length} capture requests, ${delayMs}ms spacing, expected Google cost $0.00 because metadata is documented as free.`
   );
 
+  const area = areaFromPath(input);
   const results = [];
   for (const [index, item] of captures.entries()) {
+    reportProgress("sv-metadata", { current: index + 1, total: captures.length, message: item.capture.capture_id, area });
     await waitForRequestGap(delayMs, index);
     const url = buildMetadataUrl(item.capture, apiKey);
     const response = await fetch(url);
@@ -78,6 +87,7 @@ export async function fetchStreetViewMetadata({ input, out, keyEnv, delayMs, seg
     });
     console.log(`${item.capture.capture_id}: ${payload.status}`);
   }
+  reportProgress("sv-metadata", { current: captures.length, total: captures.length, message: "done", area, done: true });
 
   await writeJson(out, {
     generated_at: new Date().toISOString(),

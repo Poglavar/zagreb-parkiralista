@@ -1677,6 +1677,21 @@ async function init() {
       }
     }
   });
+
+  // Mobile: collapse/expand the map section so polygon editing works with fingers
+  const mobileMapToggle = document.getElementById("mobileMapToggle");
+  if (mobileMapToggle) {
+    mobileMapToggle.addEventListener("click", () => {
+      const layout = document.querySelector("main.layout-two-col");
+      const open = layout.classList.toggle("mobile-map-open");
+      mobileMapToggle.textContent = open ? "Sakrij kartu" : "Karta / uredi poligone";
+      // Map container was display:none while collapsed; Leaflet must recompute size.
+      if (open) {
+        if (state.map.instance) state.map.instance.invalidateSize();
+        if (state.map.satellite) state.map.satellite.invalidateSize();
+      }
+    });
+  }
 }
 
 init().catch((err) => {

@@ -24,6 +24,7 @@ Thumbs.db
 .env.local
 
 # Pipeline outputs — large/regeneratable
+data/status/
 data/tiles/
 data/tiles_jpg/
 data/composites/

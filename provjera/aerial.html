@@ -1,0 +1,62 @@
+<!-- Mobilna stranica za provjeru aerial LLM kandidata: full-screen karta s
+     DOF podlogom, poligon s uređivanjem vrhova, akcije Potvrdi/Odbij/Preskoči.
+     Podaci iz parking API-ja (aerial-candidates). -->
+<!doctype html>
+<html lang="hr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Provjera aerial kandidata</title>
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="aerial.css?v=2" />
+</head>
+<body>
+  <div id="map" aria-label="Aerial karta kandidata"></div>
+
+  <header id="topbar">
+    <a href="../" class="back-link" aria-label="Natrag na kartu">←</a>
+    <span class="title">Provjera aerial</span>
+    <select id="status-filter" aria-label="Filter statusa">
+      <option value="pending">čeka provjeru</option>
+      <option value="confirmed">potvrđeno</option>
+      <option value="rejected">odbijeno</option>
+      <option value="">svi</option>
+    </select>
+    <span id="counter" class="counter">— / —</span>
+  </header>
+
+  <div id="info-card">
+    <div class="info-head">
+      <span id="info-kind" class="chip">—</span>
+      <span id="info-conf" class="chip">—</span>
+      <span id="info-status" class="chip">—</span>
+      <button id="info-toggle" type="button" aria-label="Više informacija">ℹ︎</button>
+    </div>
+    <div id="info-body" hidden>
+      <p id="info-reason"></p>
+      <div id="info-crop"></div>
+      <div class="info-meta"><span id="info-model"></span> · <span id="info-composite"></span></div>
+    </div>
+  </div>
+
+  <div id="edited-badge" hidden>poligon uređen · <button id="edit-reset" type="button">vrati original</button></div>
+
+  <nav id="actions">
+    <button id="btn-prev" type="button" class="nav-btn" aria-label="Prethodni">‹</button>
+    <button id="btn-reject" type="button" class="act reject">✕ Odbij</button>
+    <button id="btn-confirm" type="button" class="act confirm">✓ Potvrdi</button>
+    <button id="btn-next" type="button" class="nav-btn" aria-label="Preskoči">›</button>
+  </nav>
+
+  <div id="empty-state" hidden>
+    <p>🎉 Nema kandidata za provjeru u ovom filteru.</p>
+    <a href="../">Natrag na kartu</a>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="aerial.js?v=2"></script>
+</body>
+</html>

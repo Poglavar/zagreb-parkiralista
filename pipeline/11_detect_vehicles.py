@@ -29,6 +29,8 @@ import numpy as np
 import rasterio
 from pyproj import Transformer
 
+from progress_status import report_progress
+
 # COCO class IDs for vehicles. We deliberately skip class 4 (airplane) and 8 (boat).
 COCO_VEHICLE_CLASSES = {
     2: "car",
@@ -231,6 +233,7 @@ def main() -> int:
         if args.limit is not None and processed >= args.limit:
             log(f"Reached --limit={args.limit}, stopping")
             break
+        report_progress("detect-vehicles", i, len(tile_paths), message=tile_path.name)
         elapsed = time.time() - t_start
         eta = (elapsed / max(processed, 1)) * (len(tile_paths) - i) if processed > 0 else 0
         try:
@@ -245,6 +248,8 @@ def main() -> int:
         except Exception as exc:
             failed += 1
             log(f"  [{i}/{len(tile_paths)}] {tile_path.name}: ERROR {type(exc).__name__}: {exc}")
+
+    report_progress("detect-vehicles", len(tile_paths), len(tile_paths), message="done", done=True)
 
     # Summary stats by class.
     by_class: dict[str, int] = {}

@@ -28,9 +28,11 @@
   <header id="topbar">
     <h1><span class="topbar-title-text">Zagrebačka parkirališta</span> <span class="topbar-tagline">Sveobuhvatni prikaz parkirališnih mjesta u gradu</span></h1>
     <nav class="topbar-nav">
-      <a href="unos/review.html">Pregled ulica</a>
+      <a href="unos/review.html">Provjera ulica</a>
+      <a href="provjera/aerial.html">Provjera aerial</a>
       <a href="lane-widths/viewer.html">Širine traka</a>
       <a href="yolo-street-view/viewer.html">YOLO pregled</a>
+      <a href="http://localhost:8017/" id="nav-status" hidden>Status obrade</a>
       <a href="https://zagreb.lol" class="topbar-nav-ext">Dio projekta zagreb.lol</a>
     </nav>
     <div class="formality-filter">
@@ -72,74 +74,87 @@
   </header>
 
   <aside id="legend" class="panel">
-    <h2>Slojevi</h2>
-    <label class="layer-toggle">
-      <input type="checkbox" id="toggle-osm-open" checked />
-      <span class="swatch swatch-open"></span>
-      <span class="layer-label">Otvorena (OSM)</span>
-      <span class="count" id="count-osm-open">—</span>
-    </label>
-    <label class="layer-toggle">
-      <input type="checkbox" id="toggle-osm-enclosed" checked />
-      <span class="swatch swatch-enclosed"></span>
-      <span class="layer-label">Zatvorena (OSM)</span>
-      <span class="count" id="count-osm-enclosed">—</span>
-    </label>
-    <div class="layer-group">
-      <div class="layer-group-label">Street View <span class="count" id="count-street-view-all">—</span> <a href="unos/review.html" class="layer-link">Pregledaj</a></div>
-      <label class="layer-toggle layer-toggle-sub">
-        <input type="checkbox" id="toggle-street-view-confirmed" checked disabled />
-        <span class="swatch swatch-street-view"></span>
-        <span class="layer-label">Potvrđeno</span>
-        <span class="count" id="count-street-view-confirmed">—</span>
-      </label>
-      <label class="layer-toggle layer-toggle-sub">
-        <input type="checkbox" id="toggle-street-view-pending" checked disabled />
-        <span class="swatch swatch-street-view-pending"></span>
-        <span class="layer-label">Čeka</span>
-        <span class="count" id="count-street-view-pending">—</span>
-      </label>
-      <label class="layer-toggle layer-toggle-sub">
-        <input type="checkbox" id="toggle-street-view-suspect" checked disabled />
-        <span class="swatch swatch-street-view-suspect"></span>
-        <span class="layer-label">Sumnjivo</span>
-        <span class="count" id="count-street-view-suspect">—</span>
-      </label>
+    <div class="panel-header">
+      <h2>Slojevi</h2>
+      <button id="close-layers-btn" class="panel-close-btn" type="button" aria-label="Zatvori">×</button>
     </div>
-    <label class="layer-toggle">
-      <input type="checkbox" id="toggle-ml" checked disabled />
-      <span class="swatch swatch-ml"></span>
-      <span class="layer-label">ML-otkrivena (Faza 1)</span>
-      <span class="count" id="count-ml">—</span>
-    </label>
-    <div class="layer-group">
-      <div class="layer-group-label">LLM kandidati (Faza 5) <span class="count" id="count-llm-all">—</span></div>
-      <label class="layer-toggle layer-toggle-sub">
-        <input type="checkbox" id="toggle-llm-pending" checked disabled />
-        <span class="swatch swatch-llm-pending"></span>
-        <span class="layer-label">Čeka</span>
-        <span class="count" id="count-llm-pending">—</span>
-      </label>
-      <label class="layer-toggle layer-toggle-sub">
-        <input type="checkbox" id="toggle-llm-confirmed" checked disabled />
-        <span class="swatch swatch-llm-confirmed"></span>
-        <span class="layer-label">Potvrđeno</span>
-        <span class="count" id="count-llm-confirmed">—</span>
-      </label>
-      <label class="layer-toggle layer-toggle-sub">
-        <input type="checkbox" id="toggle-llm-rejected" disabled />
-        <span class="swatch swatch-llm-rejected"></span>
-        <span class="layer-label">Odbijeno</span>
-        <span class="count" id="count-llm-rejected">—</span>
-      </label>
+    <div class="layer-group collapsed">
+      <button class="layer-group-header" type="button">OSM <span class="count" id="count-osm-all">—</span></button>
+      <div class="layer-group-body">
+        <label class="layer-toggle layer-toggle-sub">
+          <input type="checkbox" id="toggle-osm-open" checked />
+          <span class="swatch swatch-open"></span>
+          <span class="layer-label">Otvorena</span>
+          <span class="count" id="count-osm-open">—</span>
+        </label>
+        <label class="layer-toggle layer-toggle-sub">
+          <input type="checkbox" id="toggle-osm-enclosed" checked />
+          <span class="swatch swatch-enclosed"></span>
+          <span class="layer-label">Zatvorena</span>
+          <span class="count" id="count-osm-enclosed">—</span>
+        </label>
+      </div>
     </div>
-    <label class="layer-toggle">
-      <input type="checkbox" id="toggle-informal" checked disabled />
-      <span class="swatch swatch-informal"></span>
-      <span class="layer-label">SAM1</span>
-      <span class="count" id="count-informal">—</span>
-    </label>
-    <div id="informal-breakdown" class="informal-breakdown"></div>
+    <div class="layer-group collapsed">
+      <button class="layer-group-header" type="button">Street View kandidati <span class="count" id="count-street-view-all">—</span></button>
+      <div class="layer-group-body">
+        <a href="unos/review.html" class="layer-link">Provjeri</a>
+        <label class="layer-toggle layer-toggle-sub">
+          <input type="checkbox" id="toggle-street-view-confirmed" checked disabled />
+          <span class="swatch swatch-street-view"></span>
+          <span class="layer-label">Potvrđeno</span>
+          <span class="count" id="count-street-view-confirmed">—</span>
+        </label>
+        <label class="layer-toggle layer-toggle-sub">
+          <input type="checkbox" id="toggle-street-view-pending" checked disabled />
+          <span class="swatch swatch-street-view-pending"></span>
+          <span class="layer-label">Čeka</span>
+          <span class="count" id="count-street-view-pending">—</span>
+        </label>
+        <label class="layer-toggle layer-toggle-sub">
+          <input type="checkbox" id="toggle-street-view-suspect" checked disabled />
+          <span class="swatch swatch-street-view-suspect"></span>
+          <span class="layer-label">Sumnjivo</span>
+          <span class="count" id="count-street-view-suspect">—</span>
+        </label>
+      </div>
+    </div>
+    <div class="layer-group collapsed">
+      <button class="layer-group-header" type="button">Aerial kandidati <span class="count" id="count-llm-all">—</span></button>
+      <div class="layer-group-body">
+        <a href="provjera/aerial.html" class="layer-link">Provjeri</a>
+        <label class="layer-toggle layer-toggle-sub">
+          <input type="checkbox" id="toggle-llm-pending" checked disabled />
+          <span class="swatch swatch-llm-pending"></span>
+          <span class="layer-label">Čeka</span>
+          <span class="count" id="count-llm-pending">—</span>
+        </label>
+        <label class="layer-toggle layer-toggle-sub">
+          <input type="checkbox" id="toggle-llm-confirmed" checked disabled />
+          <span class="swatch swatch-llm-confirmed"></span>
+          <span class="layer-label">Potvrđeno</span>
+          <span class="count" id="count-llm-confirmed">—</span>
+        </label>
+        <label class="layer-toggle layer-toggle-sub">
+          <input type="checkbox" id="toggle-llm-rejected" disabled />
+          <span class="swatch swatch-llm-rejected"></span>
+          <span class="layer-label">Odbijeno</span>
+          <span class="count" id="count-llm-rejected">—</span>
+        </label>
+      </div>
+    </div>
+    <div class="layer-group collapsed">
+      <button class="layer-group-header" type="button">Segmentacija <span class="count" id="count-segmentation-all">—</span></button>
+      <div class="layer-group-body">
+        <label class="layer-toggle layer-toggle-sub">
+          <input type="checkbox" id="toggle-informal" disabled />
+          <span class="swatch swatch-informal"></span>
+          <span class="layer-label">SAM1</span>
+          <span class="count" id="count-informal">—</span>
+        </label>
+        <div id="informal-breakdown" class="informal-breakdown"></div>
+      </div>
+    </div>
 
     <h2>Boja po kapacitetu</h2>
     <div class="capacity-scale">
@@ -152,8 +167,11 @@
   </aside>
 
   <aside id="totals-panel" class="panel totals-panel">
-    <div class="admin-control">
+    <div class="panel-header">
       <h2>Administrativne razine</h2>
+      <button id="close-stats-btn" class="panel-close-btn" type="button" aria-label="Zatvori">×</button>
+    </div>
+    <div class="admin-control">
       <select id="admin-level" class="admin-select">
         <option value="city">Cijeli grad</option>
         <option value="1">Gradske četvrti</option>
@@ -168,11 +186,11 @@
         <table class="totals-table">
           <thead>
             <tr>
-              <th class="sortable" data-sort="name">Područje</th>
-              <th class="num sortable" data-sort="lots">Parkir.</th>
-              <th class="num sortable" data-sort="capacity-open">Otvor.</th>
-              <th class="num sortable" data-sort="capacity-enclosed">Zatv.</th>
-              <th class="num sortable" data-sort="capacity">Mjesta</th>
+              <th class="sortable" data-sort="name" title="Naziv administrativnog područja">Područje</th>
+              <th class="num sortable" data-sort="lots" title="Broj parkirališta (lokacija) u području">Parkir.</th>
+              <th class="num sortable" data-sort="capacity-open" title="Procijenjena parkirna mjesta na otvorenim parkiralištima">Otvor.</th>
+              <th class="num sortable" data-sort="capacity-enclosed" title="Procijenjena parkirna mjesta u garažama (zatvorena)">Zatv.</th>
+              <th class="num sortable" data-sort="capacity" title="Ukupno procijenjenih parkirnih mjesta (otvorena + zatvorena)">Ukupno</th>
             </tr>
           </thead>
           <tbody id="totals-tbody"></tbody>

@@ -5,6 +5,13 @@ import { pathToFileURL } from "url";
 import { estimateGoogleStreetViewImageCost } from "./lib/billing.mjs";
 import { ensureDir, readJson, resolveFrom, writeJson } from "./lib/io.mjs";
 import { waitForRequestGap } from "./lib/rate-limit.mjs";
+import { reportProgress } from "./lib/progress.mjs";
+
+// Pull the area slug out of an out/<slug>/... path so the heartbeat can label the run.
+function areaFromPath(p) {
+  const m = /out\/([^/]+)\//.exec(p || "");
+  return m ? m[1] : null;
+}
 
 function parseArgs(argv) {
   const args = {
@@ -80,6 +87,8 @@ export async function fetchStreetViewImages({ candidates, metadata, out, imageDi
     return item.ok;
   });
   const billingEstimate = estimateGoogleStreetViewImageCost(payableItems.length);
+  const area = areaFromPath(candidates);
+  let imageIndex = 0;
 
   console.log(
     `Street View image fetch: ${payableItems.length} billable image requests, ${delayMs}ms spacing, marginal cost $0.00 if free quota remains or about $${billingEstimate.estimated_cost_usd_if_first_paid_tier_applies.toFixed(3)} at the first paid tier.`
@@ -96,6 +105,8 @@ export async function fetchStreetViewImages({ candidates, metadata, out, imageDi
     if (!capture || !item.ok) {
       continue;
     }
+    imageIndex += 1;
+    reportProgress("sv-images", { current: imageIndex, total: payableItems.length, message: `${capture.capture_id}.jpg`, area });
     const panoId = item.response.pano_id;
     const relativePath = `out/images/${capture.capture_id}.jpg`;
     const absolutePath = path.resolve(imageDir, `${capture.capture_id}.jpg`);
@@ -149,6 +160,8 @@ export async function fetchStreetViewImages({ candidates, metadata, out, imageDi
       });
     }
   }
+
+  reportProgress("sv-images", { current: payableItems.length, total: payableItems.length, message: "done", area, done: true });
 
   await writeJson(out, {
     generated_at: new Date().toISOString(),

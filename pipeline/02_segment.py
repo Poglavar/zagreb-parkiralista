@@ -29,6 +29,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from progress_status import report_progress
+
 
 def log(msg: str) -> None:
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
@@ -283,6 +285,7 @@ def main() -> int:
             log(f"Reached --limit={args.limit}, stopping")
             break
         mask_path = out_dir / f"{tile_path.stem}_mask.tif"
+        report_progress("sam3-segment", i, len(tile_paths), message=tile_path.name)
         if mask_path.exists() and mask_path.stat().st_size > 0:
             skipped += 1
             continue
@@ -300,6 +303,7 @@ def main() -> int:
         else:
             failed += 1
 
+    report_progress("sam3-segment", len(tile_paths), len(tile_paths), message="done", done=True)
     log(f"Done. processed={processed}, skipped={skipped} (cached), failed={failed}, "
         f"total_masks={total_masks}")
     log(f"Total time: {time.time() - t_start:.1f}s")

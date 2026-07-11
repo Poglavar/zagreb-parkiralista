@@ -32,7 +32,6 @@ const ADMIN_LEVEL_LABELS = {
 const layers = {
   osmOpen: null,
   osmEnclosed: null,
-  ml: null,
   informal: null,
   llmPending: null,      // Phase 5 LLM proposals awaiting review (from parking API)
   llmConfirmed: null,    // Phase 5 LLM proposals confirmed by a human
@@ -55,7 +54,6 @@ const formalityFilter = { formal: true, informal: true };
 const LAYER_FORMALITY = {
   osmOpen: "formal",
   osmEnclosed: "formal",
-  ml: "informal",
   llmPending: "informal",
   llmConfirmed: "informal",
   llmRejected: "informal",
@@ -69,7 +67,6 @@ const LAYER_FORMALITY = {
 const LAYER_CHECKBOX = {
   osmOpen: "toggle-osm-open",
   osmEnclosed: "toggle-osm-enclosed",
-  ml: "toggle-ml",
   llmPending: "toggle-llm-pending",
   llmConfirmed: "toggle-llm-confirmed",
   llmRejected: "toggle-llm-rejected",
@@ -392,6 +389,8 @@ async function loadOsmLayer(map) {
     osmHandles = buildOsmHandles(osmFeatureCollection);
     document.getElementById("count-osm-open").textContent = formatNumber(openFeatures.length);
     document.getElementById("count-osm-enclosed").textContent = formatNumber(enclosedFeatures.length);
+    const osmAllEl = document.getElementById("count-osm-all");
+    if (osmAllEl) osmAllEl.textContent = formatNumber(openFeatures.length + enclosedFeatures.length);
     updateHeadline(osmFeatureCollection.metadata);
     // All OSM parking is considered formal
     formalityCounts.formal += osmFeatureCollection.features.length;
@@ -594,13 +593,15 @@ async function loadInformalLayer(map) {
     },
   });
 
-  layer.addTo(map);
+  // Off by default — 4k+ dots overwhelm the map; the user opts in via the toggle.
   layers.informal = layer;
 
   const cb = document.getElementById("toggle-informal");
   cb.disabled = false;
-  cb.checked = true;
+  cb.checked = false;
   document.getElementById("count-informal").textContent = formatNumber(fc.features.length);
+  const segAllEl = document.getElementById("count-segmentation-all");
+  if (segAllEl) segAllEl.textContent = formatNumber(fc.features.length);
 
   // All detected informal parking is, by definition, informal.
   formalityCounts.informal += fc.features.length;
@@ -666,7 +667,7 @@ function llmStyleFor(feature) {
   };
 }
 
-const LLM_STATUS_LABELS = { pending: "čeka pregled", confirmed: "potvrđeno", rejected: "odbijeno" };
+const LLM_STATUS_LABELS = { pending: "čeka provjeru", confirmed: "potvrđeno", rejected: "odbijeno" };
 
 function llmPopupHtml(feature) {
   const p = feature.properties || {};
@@ -689,7 +690,7 @@ function llmPopupHtml(feature) {
        <button class="review-btn review-reject" onclick="reviewAerialCandidate('${idAttr}','rejected')">✕ Odbij</button>`
     : `<button class="review-btn review-revert" onclick="reviewAerialCandidate('${idAttr}','pending')">↩ Vrati na čekanje</button>`;
   return `
-    <strong>LLM prijedlog (Faza 5) — ${escapeHtml(LLM_STATUS_LABELS[status] || status)}</strong>
+    <strong>Aerial kandidat — ${escapeHtml(LLM_STATUS_LABELS[status] || status)}</strong>
     ${cropHtml}
     <table class="popup-table">
       <tr><th>Model</th><td>${escapeHtml(p.model || "—")}</td></tr>
@@ -768,58 +769,6 @@ async function loadLlmLayer(map) {
   // Respect current toggle + formality state when (re-)adding to the map.
   reapplyFormalityFilter();
   return layers.llmPending;
-}
-
-// ───────── Phase 1 ML candidates layer ─────────
-
-async function loadMlLayer(map) {
-  const url = "data/candidates/missing_parking.geojson";
-  let res;
-  try {
-    res = await fetch(url, { cache: "no-store" });
-  } catch (err) {
-    return null;
-  }
-  if (!res.ok) return null;
-
-  let fc;
-  try {
-    fc = await res.json();
-  } catch (err) {
-    console.warn("ML candidates file present but malformed:", err);
-    return null;
-  }
-  if (!fc || fc.type !== "FeatureCollection" || !Array.isArray(fc.features)) return null;
-
-  const layer = L.geoJSON(fc, {
-    style: () => ({
-      color: "#b45309",
-      weight: 1.5,
-      fillColor: "#f59e0b",
-      fillOpacity: 0.55,
-    }),
-    onEachFeature: (feature, lyr) => {
-      const p = feature.properties || {};
-      const html = `
-        <strong>ML kandidat (Phase 1)</strong>
-        <table class="popup-table">
-          <tr><th>Površina</th><td>${formatArea(p.area_m2)}</td></tr>
-          <tr><th>Kompaktnost</th><td>${p.compactness ?? "—"}</td></tr>
-          <tr><th>IoU vs OSM</th><td>${p.best_iou_with_osm ?? "0"}</td></tr>
-          <tr><th>Source tile</th><td>${escapeHtml(p.source_tile || "—")}</td></tr>
-        </table>
-      `;
-      lyr.bindPopup(html, { maxWidth: 320 });
-    },
-  });
-
-  layer.addTo(map);
-  layers.ml = layer;
-
-  const cb = document.getElementById("toggle-ml");
-  cb.disabled = false;
-  cb.checked = true;
-  document.getElementById("count-ml").textContent = formatNumber(fc.features.length);
 }
 
 // ───────── Admin borders + per-area aggregation ─────────
@@ -937,7 +886,7 @@ function renderTotalsTable(rows, sortKey) {
       tr.classList.add("selected");
       selectedAdminName = tr.dataset.name;
       const row = currentAggregation.find((x) => x.name === selectedAdminName);
-      if (row) selectAdminArea(row.feature);
+      if (row && row.feature) selectAdminArea(row.feature);
     });
   });
 
@@ -979,12 +928,45 @@ function clearAdminLayers() {
   }
 }
 
+// Whole-city aggregate: one summary row over all (visible) handles. No turf /
+// point-in-polygon needed — everything belongs to the city.
+function renderCityTotals() {
+  const handles = visibleHandles();
+  if (!handles.length) {
+    hideTotalsContent();
+    setAdminStatus("Nema učitanih podataka");
+    return;
+  }
+  const row = {
+    name: "Cijeli grad",
+    feature: null,  // no polygon to highlight/zoom
+    lots: 0, lots_open: 0, lots_enclosed: 0,
+    capacity_open: 0, capacity_enclosed: 0, capacity_total: 0,
+    area_m2: 0,
+  };
+  for (const h of handles) {
+    row.lots += 1;
+    row.area_m2 += h.area_m2;
+    row.capacity_total += h.capacity;
+    if (h.kind === "enclosed") {
+      row.lots_enclosed += 1;
+      row.capacity_enclosed += h.capacity;
+    } else {
+      row.lots_open += 1;
+      row.capacity_open += h.capacity;
+    }
+  }
+  currentAggregation = [row];
+  renderTotalsTable(currentAggregation, currentSortKey);
+  showTotalsContent(0, currentAggregation);
+  setAdminStatus("zbroj za cijeli grad");
+}
+
 async function selectAdminLevel(value) {
   clearAdminLayers();
 
   if (value === "city") {
-    hideTotalsContent();
-    setAdminStatus("");
+    renderCityTotals();
     return;
   }
 
@@ -1096,7 +1078,7 @@ async function loadStreetViewLayer(map) {
         <tr><th>Površina</th><td>${formatArea(p._area_m2)}</td></tr>
         <tr><th>Kapacitet</th><td>~${p._capacity || 0} mjesta</td></tr>
       </table>
-      <a href="${reviewUrl}" class="popup-review-link" target="_blank" rel="noopener">Pregledaj</a>
+      <a href="${reviewUrl}" class="popup-review-link" target="_blank" rel="noopener">Provjeri</a>
     `;
     lyr.bindPopup(html, { maxWidth: 320 });
   }
@@ -1198,9 +1180,14 @@ function reaggregateTotals() {
   const filtered = visibleHandles();
   updateHeadlineFromHandles(filtered);
 
-  if (!currentAggregation) return;
   const level = document.getElementById("admin-level")?.value;
-  if (!level || level === "city") return;
+  // City view aggregates everything — refresh it as layers load/toggle so the
+  // default dropdown selection shows stats instead of an empty panel.
+  if (!level || level === "city") {
+    if (filtered.length) renderCityTotals();
+    return;
+  }
+  if (!currentAggregation) return;
 
   // Re-aggregate with current visible handles but keep existing sort and selection
   const adminFc = { type: "FeatureCollection", features: currentAggregation.map((r) => r.feature) };
@@ -1237,14 +1224,12 @@ function init() {
   }).addTo(mapRef);
 
   loadOsmLayer(mapRef);
-  loadMlLayer(mapRef);
   loadInformalLayer(mapRef);
   loadLlmLayer(mapRef);
   loadStreetViewLayer(mapRef);
 
   wireToggle("toggle-osm-open", "osmOpen");
   wireToggle("toggle-osm-enclosed", "osmEnclosed");
-  wireToggle("toggle-ml", "ml");
   wireToggle("toggle-informal", "informal");
   wireToggle("toggle-llm-pending", "llmPending");
   wireToggle("toggle-llm-confirmed", "llmConfirmed");
@@ -1295,6 +1280,30 @@ function init() {
     legendEl.classList.remove("mobile-open");
     statsBtn.classList.toggle("active", opening);
     layersBtn.classList.remove("active");
+  });
+
+  // "Status obrade" nav link only exists locally (the status server binds
+  // 127.0.0.1 and isn't deployed), so reveal it only on localhost.
+  if (["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    const statusLink = document.getElementById("nav-status");
+    if (statusLink) statusLink.hidden = false;
+  }
+
+  // Explicit close buttons in the panel headers (mobile-only affordance)
+  document.getElementById("close-layers-btn")?.addEventListener("click", () => {
+    legendEl.classList.remove("mobile-open");
+    layersBtn.classList.remove("active");
+  });
+  document.getElementById("close-stats-btn")?.addEventListener("click", () => {
+    totalsEl.classList.remove("mobile-open");
+    statsBtn.classList.remove("active");
+  });
+
+  // Collapsible layer sections — headers toggle their group open/closed
+  document.querySelectorAll(".layer-group-header").forEach((header) => {
+    header.addEventListener("click", () => {
+      header.parentElement.classList.toggle("collapsed");
+    });
   });
 
   // Tap map to close panels on mobile

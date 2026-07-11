@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- Localhost-only processing-status dashboard. Served by status/server.mjs
+     (npm run status); never deployed to prod. -->
+<html lang="hr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Status obrade — zagreb-parkiralista</title>
+  <link rel="stylesheet" href="status.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Status obrade</h1>
+    <nav class="nav">
+      <a href="http://localhost:8000/">Karta</a>
+      <a href="http://localhost:8000/unos/review.html">Provjera ulica</a>
+    </nav>
+    <span class="refreshed" id="refreshed">—</span>
+  </header>
+
+  <main>
+    <section id="running-section">
+      <h2>U tijeku</h2>
+      <div id="running" class="running-grid"></div>
+    </section>
+
+    <section>
+      <h2>Aerial pipeline</h2>
+      <div id="aerial-tiles" class="tile-row"></div>
+      <div id="aerial-meters" class="meter-list"></div>
+    </section>
+
+    <section>
+      <h2>Street View pipeline</h2>
+      <div id="sv-review" class="tile-row"></div>
+      <div class="table-wrap">
+        <table id="sv-table">
+          <thead>
+            <tr>
+              <th title="Područje (out/ direktorij)">Područje</th>
+              <th class="num" title="Broj cestovnih segmenata u selekciji">Segmenti</th>
+              <th class="num" title="Broj planiranih fotografija (capture stanica × smjerova)">Captures</th>
+              <th class="num" title="Captures s dostupnim Street View snimkama (metadata preflight)">Pokriveno</th>
+              <th title="Skinute slike / pokriveno">Slike</th>
+              <th class="num" title="Segmenata analizirano — OpenAI batch">AI: batch</th>
+              <th class="num" title="Segmenata analizirano — Claude CLI">AI: claude</th>
+              <th class="num" title="Segmenata analizirano — Codex CLI">AI: codex</th>
+            </tr>
+          </thead>
+          <tbody id="sv-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>Nedavno završeno</h2>
+      <div id="recent" class="recent-list"></div>
+    </section>
+  </main>
+
+  <script src="status.js"></script>
+</body>
+</html>

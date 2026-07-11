@@ -58,10 +58,13 @@ ${SSH_CMD} "
 echo "Syncing informal-parking layer…"
 rsync -a data/final/informal_parking.geojson ${SERVER_USER}@${SERVER_HOST}:${WEB_ROOT}/data/final/informal_parking.geojson || true
 
-# 2b. Diagnostic viewers (lane-widths + yolo-street-view), crosslinked from the topbar
+# 2b. Diagnostic viewers (lane-widths + yolo-street-view) + provjera pages
 echo "Deploying diagnostic viewers…"
 ${SSH_CMD} "
-    mkdir -p ${WEB_ROOT}/lane-widths/data ${WEB_ROOT}/yolo-street-view/out
+    mkdir -p ${WEB_ROOT}/lane-widths/data ${WEB_ROOT}/yolo-street-view/out ${WEB_ROOT}/provjera
+    cp ${REPO_PATH}/provjera/aerial.html ${WEB_ROOT}/provjera/aerial.html
+    cp ${REPO_PATH}/provjera/aerial.css  ${WEB_ROOT}/provjera/aerial.css
+    cp ${REPO_PATH}/provjera/aerial.js   ${WEB_ROOT}/provjera/aerial.js
     cp ${REPO_PATH}/lane-widths/viewer.html ${WEB_ROOT}/lane-widths/viewer.html
     cp ${REPO_PATH}/lane-widths/viewer.css  ${WEB_ROOT}/lane-widths/viewer.css
     cp ${REPO_PATH}/lane-widths/viewer.js   ${WEB_ROOT}/lane-widths/viewer.js

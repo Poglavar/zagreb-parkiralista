@@ -27,6 +27,8 @@ from urllib.parse import urlencode
 import requests
 from pyproj import Transformer
 
+from progress_status import report_progress
+
 # Default test bbox — small ~1 km² area in central Zagreb (Glavni kolodvor / Vinogradska),
 # chosen to be cheap to run end-to-end the first time.
 DEFAULT_BBOX_WGS84 = (15.965, 45.798, 15.985, 45.812)  # west, south, east, north
@@ -246,6 +248,7 @@ def main() -> int:
             log(f"Reached --max-tiles={args.max_tiles}, stopping")
             break
         out_path = out_root / f"tile_{col}_{row}.tif"
+        report_progress("fetch-tiles", i, len(tiles), message=out_path.name)
         if out_path.exists() and out_path.stat().st_size > 0:
             skipped += 1
             continue
@@ -256,6 +259,7 @@ def main() -> int:
             failed += 1
         time.sleep(args.throttle_ms / 1000.0)
 
+    report_progress("fetch-tiles", len(tiles), len(tiles), message="done", done=True)
     log(f"Done. fetched={fetched}, skipped={skipped} (cached), failed={failed}")
     log(f"Output dir: {out_root}")
     return 0 if failed == 0 else 1

@@ -1,0 +1,224 @@
+/* Styles for the mobile-first aerial provjera page. Full-screen map,
+   floating top bar, info card, and a thumb-height action bar. */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+}
+
+#map { position: fixed; inset: 0; }
+
+/* ── Top bar ── */
+#topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+  background: rgba(16, 24, 39, 0.92);
+  color: #fff;
+}
+
+#topbar .back-link {
+  color: #93c5fd;
+  text-decoration: none;
+  font-size: 22px;
+  line-height: 1;
+  padding: 2px 6px;
+}
+
+#topbar .title { font-weight: 600; font-size: 14px; }
+
+#topbar select {
+  margin-left: auto;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: none;
+  background: #1f2937;
+  color: #e5e7eb;
+}
+
+#topbar .counter { font-variant-numeric: tabular-nums; font-size: 13px; color: #9ca3af; }
+
+/* ── Info card ── */
+#info-card {
+  position: fixed;
+  top: calc(46px + env(safe-area-inset-top));
+  left: 8px;
+  right: 8px;
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  padding: 8px 10px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.info-head { display: flex; align-items: center; gap: 6px; }
+
+.chip {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: #374151;
+}
+
+.chip.conf-high { background: #dcfce7; color: #14532d; }
+.chip.conf-medium { background: #fef3c7; color: #713f12; }
+.chip.conf-low { background: #fee2e2; color: #7f1d1d; }
+.chip.st-pending { background: #ede9fe; color: #4c1d95; }
+.chip.st-confirmed { background: #dcfce7; color: #14532d; }
+.chip.st-rejected { background: #e5e7eb; color: #374151; }
+
+#info-toggle {
+  margin-left: auto;
+  border: none;
+  background: #eef2f7;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  cursor: pointer;
+  color: #374151;
+}
+
+#info-body p { margin: 8px 2px 6px; font-size: 13px; line-height: 1.45; color: #1f2430; }
+.info-meta { font-size: 11px; color: #8a93a3; margin-top: 6px; }
+
+/* Composite crop preview (2022 CDOF s overlayima — ono što je model vidio) */
+#info-crop .tile-crop {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background-repeat: no-repeat;
+  overflow: hidden;
+  margin: 4px auto 0;
+}
+
+#info-crop .tile-crop-bbox {
+  position: absolute;
+  border: 2px solid #ef4444;
+  border-radius: 2px;
+}
+
+/* ── Edited badge ── */
+#edited-badge {
+  position: fixed;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  background: #fef3c7;
+  color: #713f12;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 999px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+}
+
+#edited-badge button {
+  border: none;
+  background: none;
+  color: #92400e;
+  text-decoration: underline;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* ── Action bar ── */
+#actions {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  background: rgba(16, 24, 39, 0.92);
+}
+
+.act {
+  flex: 1;
+  border: none;
+  border-radius: 10px;
+  padding: 14px 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+}
+
+.act.confirm { background: #16a34a; }
+.act.confirm:active { background: #15803d; }
+.act.reject { background: #dc2626; }
+.act.reject:active { background: #b91c1c; }
+.act:disabled { opacity: 0.4; }
+
+.nav-btn {
+  width: 52px;
+  border: none;
+  border-radius: 10px;
+  background: #374151;
+  color: #e5e7eb;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+/* ── Empty state ── */
+#empty-state {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.95);
+  font-size: 16px;
+}
+
+#empty-state a { color: #2563eb; }
+#empty-state[hidden] { display: none; }
+
+/* Vertex editing handles */
+.vertex-handle {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid #0d9488;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.midpoint-handle {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.7);
+  border: 2px solid rgba(13, 148, 136, 0.7);
+}
+
+/* Desktop: cap the info card width, keep everything else identical —
+   the page is deliberately the same minimal UI on all screens. */
+@media (min-width: 700px) {
+  #info-card { left: 50%; right: auto; transform: translateX(-50%); width: 420px; }
+  #actions { left: 50%; right: auto; transform: translateX(-50%); width: 480px; border-radius: 12px 12px 0 0; }
+}

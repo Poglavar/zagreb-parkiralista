@@ -234,6 +234,7 @@ s krošnjama gdje se vidi par auta i susjedni segmenti imaju mapirano parkiranje
 
 **Provider podrška**:
 - **claude-cli** (default, srpanj 2026) → lokalni `claude -p` s `--json-schema` enforced outputom, subscription-billed, 4 paralelna workera (`--workers N`). ~45–135 s po composite-u; nominalna API-ekvivalentna cijena ~$0,20–0,50 po composite-u prikazuje se u logu, ali se stvarno ne naplaćuje. Featurei su tagirani `provider=anthropic` + `engine=claude-cli` pa viewer ne treba izmjene.
+- **codex-cli** (srpanj 2026) → lokalni `codex exec -i composite.png --output-schema …`, billed kroz ChatGPT pretplatu. Model je codex config default (ChatGPT računi ne dopuštaju proizvoljne modele), reasoning effort medium. Featurei tagirani `provider=openai` + `engine=codex-cli` — koristan za A/B protiv claude-cli bez API troška.
 - **anthropic** → Claude API (Sonnet 4.6 default), max_tokens 2000
 - **openai** → GPT-4o (default) ili GPT-5 (`--model gpt-5 --max-tokens 10000` zbog hidden reasoning tokens — manje od toga vraća prazan response)
 - **both** → procesira anthropic + openai u jednom run-u, output u istu datoteku s `provider` propertom po feature-u

@@ -5,7 +5,11 @@
   "private": true,
   "scripts": {
     "dev": "npx http-server -p 8000 -c-1 .",
+    "status": "node status/server.mjs",
     "serve": "python3 -m http.server 8000"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "pg": "^8.22.0"
+  }
 }

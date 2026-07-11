@@ -21,6 +21,8 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+from progress_status import report_progress
+
 DEFAULT_BORDERS_API = "https://zagreb.lol/parkiralista/api/borders"
 
 # Composite windows follow the convention of the existing corpus: --grid 4
@@ -158,6 +160,9 @@ def main() -> int:
     rendered = skipped = failed = 0
     for i, (col, row) in enumerate(have, 1):
         composite_png = out_dir / f"composite_tile_{col}_{row}_g{args.grid}.png"
+        if not args.dry_run:
+            report_progress("render-composites", i, len(have),
+                            message=f"tile_{col}_{row}", area=args.area or "bbox")
         if args.skip_existing and composite_png.exists():
             log(f"[{i}/{len(have)}] tile_{col}_{row} — exists, skipping")
             skipped += 1
@@ -178,6 +183,9 @@ def main() -> int:
         else:
             rendered += 1
 
+    if not args.dry_run:
+        report_progress("render-composites", len(have), len(have),
+                        message="done", area=args.area or "bbox", done=True)
     log(f"Done: {rendered} rendered, {skipped} skipped, {failed} failed, "
         f"{len(missing)} unreachable (missing tiles)")
     if not args.dry_run and rendered:
