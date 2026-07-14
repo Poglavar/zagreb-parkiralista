@@ -49,7 +49,8 @@ ${SSH_CMD} "
     cp ${REPO_PATH}/js/map.js  ${WEB_ROOT}/js/map.js
     cp ${REPO_PATH}/favicon.svg ${WEB_ROOT}/favicon.svg
 
-    cp ${REPO_PATH}/data/osm/parking_zagreb.geojson         ${WEB_ROOT}/data/osm/parking_zagreb.geojson
+    # parking_zagreb.geojson is no longer shipped: the viewer reads the OSM baseline from
+    # /api/parking/osm (parking.osm_parking, versioned). A static copy only drifts.
     cp ${REPO_PATH}/data/final/parking_with_capacity.geojson ${WEB_ROOT}/data/final/parking_with_capacity.geojson
 "
 # LLM candidates are no longer served as a static file — the viewer reads them
@@ -97,9 +98,7 @@ ${SSH_CMD} "
     cp ${REPO_PATH}/street-view/scripts/lib/*.mjs ${WEB_ROOT}/unos/scripts/lib/
 "
 
-# 4. Rsync gitignored data files (not in git, must be pushed from local)
-echo "Syncing street-view OSM data…"
-rsync -a street-view/data/osm/parking_zagreb.geojson ${SERVER_USER}@${SERVER_HOST}:${WEB_ROOT}/unos/data/osm/parking_zagreb.geojson
+# 4. (The review UI's OSM layer also comes from /api/parking/osm now — nothing to sync.)
 
 # Flat legacy image dir (older pipeline output) + per-area image dirs (newer
 # pipeline output, e.g. street-view/out/donji-grad/images/). The API returns
