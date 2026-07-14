@@ -10,9 +10,10 @@ const PARKING_API_BASE = window.location.hostname === "localhost" || window.loca
 // Aerial imagery sources (switch by swapping the tile layer in ensureLeafletMap)
 const AERIAL_TMS_URL = "https://tms.osm-hr.org/zagreb-2018/{z}/{x}/{y}.png"; // DOF Zagreb 2018, TMS
 // Fallback: const CDOF_WMS_URL = "https://geoportal.zagreb.hr/Public/Ortofoto2022_Public/GradZagreb_CDOF2022_Public/ows";
-const OSM_PARKING_URL = "./data/osm/parking_zagreb.geojson";
+const OSM_PARKING_URL = `${PARKING_API_BASE}/osm`;
 
 const state = {
+  runId: null, // which model run is on screen; verdicts are keyed to the space, not the run
   segments: [],
   formPreview: null,
   isPopulatingForm: false,
@@ -29,6 +30,7 @@ const state = {
 
 const els = {
   areaSelect: document.getElementById("areaSelect"),
+  runSelect: document.getElementById("runSelect"),
   reviewFilterField: document.getElementById("reviewFilterField"),
   captureGrid: document.getElementById("captureGrid"),
   segmentMeta: document.getElementById("segmentMeta"),
@@ -142,8 +144,16 @@ async function loadArea(areaName) {
   // Reviewer needs inactive areas for review; captures are loaded per-segment on selection
   params.set("include_inactive", "true");
 
+  // Observations belong to a run: you are always reviewing ONE model's answer, chosen
+  // explicitly. Verdicts you have already made come back attached, whichever run is on screen.
+  if (!state.runId) {
+    console.warn("No run selected — cannot load observations");
+    return;
+  }
+  params.set("run_id", state.runId);
+
   try {
-    const resp = await fetch(`${PARKING_API_BASE}/areas?${params}`);
+    const resp = await fetch(`${PARKING_API_BASE}/observations?${params}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const fc = await resp.json();
     state.segments = groupFeaturesIntoSegments(fc);
@@ -1280,7 +1290,7 @@ async function undoLastSave() {
   // Re-POST the previous side data to restore the old state
   for (const prev of saved.sides) {
     try {
-      const resp = await fetch(`${PARKING_API_BASE}/areas`, {
+      const resp = await fetch(`${PARKING_API_BASE}/verdicts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1291,7 +1301,8 @@ async function undoLastSave() {
           confidence: prev.confidence,
           review_status: saved.reviewStatus,
           active: prev.active,
-          updated_by: "street-view-reviewer"
+          updated_by: "street-view-reviewer",
+          based_on_run: state.runId,
         })
       });
       if (!resp.ok) { console.error(`Undo API failed ${saved.segmentId}/${prev.side}:`, await resp.text()); apiOk = false; }
@@ -1400,7 +1411,7 @@ async function saveReview(reviewStatus, suspectReason = null) {
 
   for (const { side, geom, sa, active } of saveSides) {
     try {
-      const resp = await fetch(`${PARKING_API_BASE}/areas`, {
+      const resp = await fetch(`${PARKING_API_BASE}/verdicts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1412,7 +1423,8 @@ async function saveReview(reviewStatus, suspectReason = null) {
           review_status: reviewStatus,
           suspect_reason: suspectReason,
           active,
-          updated_by: "street-view-reviewer"
+          updated_by: "street-view-reviewer",
+          based_on_run: state.runId,
         })
       });
       if (!resp.ok) { console.error(`API save failed ${segment.segment_id}/${side}:`, await resp.text()); apiOk = false; }
@@ -1428,7 +1440,7 @@ async function saveReview(reviewStatus, suspectReason = null) {
       // Optimistic update — hide from map immediately; rollback on API failure
       segment.sides["manual"] = { ...existingManual, inactive: true };
       try {
-        const resp = await fetch(`${PARKING_API_BASE}/areas`, {
+        const resp = await fetch(`${PARKING_API_BASE}/verdicts`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1440,6 +1452,7 @@ async function saveReview(reviewStatus, suspectReason = null) {
             review_status: reviewStatus,
             active: false,
             updated_by: "street-view-reviewer",
+            based_on_run: state.runId,
           })
         });
         if (!resp.ok) {
@@ -1465,7 +1478,7 @@ async function saveReview(reviewStatus, suspectReason = null) {
     };
     const manualTags = { parking_manner: sa.parking_manner, parking_level: sa.parking_level, formality: sa.formality, source: "manual", label: "Ručno" };
     try {
-      const resp = await fetch(`${PARKING_API_BASE}/areas`, {
+      const resp = await fetch(`${PARKING_API_BASE}/verdicts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1477,6 +1490,7 @@ async function saveReview(reviewStatus, suspectReason = null) {
           review_status: reviewStatus,
           active: true,
           updated_by: "street-view-reviewer",
+          based_on_run: state.runId,
           segment_geom: segGeom,
         })
       });
@@ -1549,7 +1563,31 @@ async function saveReview(reviewStatus, suspectReason = null) {
 
 // --- Init ---
 
+// The runs you can review. Each is one model's complete answer for an area; they coexist,
+// so switching run changes what is on screen but never what you have already decided.
+async function loadRunList() {
+  try {
+    const resp = await fetch(`${PARKING_API_BASE}/runs`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return (await resp.json()).runs || [];
+  } catch (err) {
+    console.error("Failed to load runs:", err.message);
+    return [];
+  }
+}
+
 async function init() {
+  // Which model's answer are we looking at?
+  const runs = await loadRunList();
+  for (const r of runs) {
+    const opt = document.createElement("option");
+    opt.value = r.run_id;
+    const done = Number(r.reviewed_count) || 0;
+    opt.textContent = `${r.model || r.run_id} · ${r.area} (${done}/${r.segment_count} provjereno)`;
+    els.runSelect.appendChild(opt);
+  }
+  state.runId = runs[0]?.run_id || null;
+
   // Load area list and populate dropdown
   const areas = await loadAreaList();
   const totals = areas.reduce((t, a) => ({ p: t.p + Number(a.pending_count), c: t.c + Number(a.confirmed_count), s: t.s + Number(a.suspect_count) }), { p: 0, c: 0, s: 0 });
@@ -1567,6 +1605,10 @@ async function init() {
   // Events
   els.areaSelect.addEventListener("change", () => loadArea(els.areaSelect.value));
   els.reviewFilterField.addEventListener("change", () => loadArea(els.areaSelect.value));
+  els.runSelect.addEventListener("change", () => {
+    state.runId = els.runSelect.value;
+    loadArea(els.areaSelect.value);
+  });
 
   // Segment jump dropdown
   const segmentJump = document.getElementById("segmentJump");

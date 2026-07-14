@@ -193,9 +193,21 @@ async function dbState() {
     const aerial = await p.query(
       "SELECT review_status, COUNT(*)::int AS n FROM parking.aerial_candidate WHERE current GROUP BY 1"
     );
-    const street = await p.query(
-      "SELECT review_status, COUNT(*)::int AS n FROM parking.area WHERE current AND active GROUP BY 1"
-    );
+    // Review progress = spaces you have judged vs spaces still only a model's opinion.
+    // parking.area is retired; observations are per-run and verdicts are per physical space.
+    const street = await p.query(`
+      SELECT review_status, COUNT(*)::int AS n FROM (
+        SELECT v.review_status
+        FROM parking.verdict v
+        UNION ALL
+        SELECT 'pending'
+        FROM (SELECT DISTINCT segment_id, side FROM parking.observation) o
+        WHERE NOT EXISTS (
+          SELECT 1 FROM parking.verdict v2
+          WHERE v2.segment_id = o.segment_id AND v2.side = o.side
+        )
+      ) x GROUP BY 1
+    `);
     const toMap = (rows) => Object.fromEntries(rows.map((r) => [r.review_status, r.n]));
     return { available: true, aerial_review: toMap(aerial.rows), street_review: toMap(street.rows) };
   } catch (err) {

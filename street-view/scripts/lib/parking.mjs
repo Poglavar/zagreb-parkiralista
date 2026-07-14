@@ -10,7 +10,11 @@ const DIAGONAL_ANGLE_DEG = 45;
 export function bandWidthForManner(manner) {
   if (manner === "perpendicular") return CAR_LENGTH_M;
   if (manner === "diagonal") return Math.sin(DIAGONAL_ANGLE_DEG * Math.PI / 180) * CAR_LENGTH_M;
-  // parallel, mixed, unknown, none — use car width
+  // "mixed" means two manners genuinely coexist on this side, so take the midpoint
+  // between a parallel and a perpendicular band. Collapsing it to car width (as we
+  // did before) made every hedge a silent vote for the shallowest strip.
+  if (manner === "mixed") return (CAR_WIDTH_M + CAR_LENGTH_M) / 2;
+  // parallel, unknown, none — use car width
   return CAR_WIDTH_M;
 }
 

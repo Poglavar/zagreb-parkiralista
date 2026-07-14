@@ -13,9 +13,36 @@ import { importOpenAiBatch } from "./import-openai-batch.mjs";
 import { analyzeWithClaudeCli } from "./analyze-claude-cli.mjs";
 import { analyzeWithCodexCli } from "./analyze-codex-cli.mjs";
 
-// Repo was renamed from zagreb-road-widths to zagreb-ulice; data now lives under sirine/.
-const ROAD_WIDTH_SOURCE = resolveFrom(import.meta.url, "../../../zagreb-ulice/sirine/data/road-width-zagreb.json");
+// Segments come from the shared roads API (road_width_segment in geodata), which is the
+// single source of truth and carries osm_id + street_name. We used to read
+// zagreb-ulice's road-width-zagreb.json directly over a cross-repo relative path — that
+// was an intermediate artifact of this very table, and it had no osm_id, so the pipeline
+// keyed everything to a volatile row number. ROAD_WIDTH_FALLBACK is only for working
+// offline; the API is authoritative.
+const ROADS_API = process.env.ROADS_API_BASE
+  || (process.env.NODE_ENV === "production" ? "https://api.zagreb.lol/api/roads" : "http://localhost:3001/api/roads");
+const ROAD_WIDTH_FALLBACK = resolveFrom(import.meta.url, "../../../zagreb-ulice/sirine/data/road-width-zagreb.json");
 const CADASTRE_ENV = resolveFrom(import.meta.url, "../../../cadastre-data/api/.env");
+
+// Prefer the shared roads API; fall back to the local JSON only if it is unreachable, and
+// say so loudly, because the fallback carries no osm_id.
+async function loadRoadWidthSource() {
+  const url = `${ROADS_API}/width-segments`;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const n = data.segmentLines?.length || 0;
+    if (!n) throw new Error("no segmentLines in response");
+    const withOsm = data.segmentLines.filter((s) => s.osm != null).length;
+    console.log(`[${ts()}] Road segments from ${url}: ${n} (${withOsm} with osm_id)`);
+    return { sourceData: data, sourceLabel: url };
+  } catch (err) {
+    console.warn(`[${ts()}] WARNING: roads API unreachable (${err.message}) — falling back to ${ROAD_WIDTH_FALLBACK}, which has no osm_id.`);
+    const { readJson: rj } = await import("./lib/io.mjs");
+    return { sourceData: await rj(ROAD_WIDTH_FALLBACK), sourceLabel: ROAD_WIDTH_FALLBACK };
+  }
+}
 
 function ts() {
   return new Date().toISOString().replace("T", " ").replace(/\.\d+Z$/, "");
@@ -32,6 +59,7 @@ function parseArgs(argv) {
     chunkSize: 50,
     maxChunks: 1,
     model: null,           // default depends on engine: sonnet / gpt-5.4
+    effort: null,          // reasoning effort for the CLI engines; null = engine default
     workers: 3,
     limit: null,
     dryRun: true,
@@ -45,6 +73,7 @@ function parseArgs(argv) {
     else if (argv[i] === "--chunk-size") args.chunkSize = Number(argv[++i]);
     else if (argv[i] === "--max-chunks") args.maxChunks = Number(argv[++i]);
     else if (argv[i] === "--model") args.model = argv[++i];
+    else if (argv[i] === "--effort") args.effort = argv[++i];
     else if (argv[i] === "--workers") args.workers = Number(argv[++i]);
     else if (argv[i] === "--limit") args.limit = Number(argv[++i]);
     else if (argv[i] === "--write") args.dryRun = false;
@@ -82,6 +111,7 @@ Options:
   --area NAME        Area name to process (matches l1/l2/l3 from road-width data)
   --engine NAME      claude-cli (default), codex-cli, or openai-batch
   --model MODEL      Model override (default: sonnet / codex config default / gpt-5.4)
+  --effort LEVEL     Reasoning effort for the CLI engines: low|medium|high|xhigh|max
   --workers N        Parallel CLI calls for claude-cli engine (default: 3)
   --limit N          Analyze at most N segments (claude-cli engine; for cost testing)
   --chunk-size N     Batch chunk size (default: 50, openai-batch only)
@@ -193,7 +223,7 @@ async function main() {
   // Step 1: Generate segment selection
   if (shouldRun("selection")) {
     const ok = await runStep("selection", "Generate segment selection", paths.selection, async () => {
-      const sourceData = await readJson(ROAD_WIDTH_SOURCE);
+      const { sourceData, sourceLabel } = await loadRoadWidthSource();
       const selectionItems = selectSegmentsForArea(sourceData, areaName);
       if (selectionItems.length === 0) {
         throw new Error(`No segments found matching area "${areaName}". Check l1/l2/l3 labels in road-width data.`);
@@ -204,7 +234,7 @@ async function main() {
       await writeJson(paths.selection, {
         type: "FeatureCollection",
         metadata: {
-          source: ROAD_WIDTH_SOURCE,
+          source: sourceLabel,
           area: areaName,
           generated_at: new Date().toISOString(),
           feature_count: features.length
@@ -255,12 +285,13 @@ async function main() {
         images: paths.images,
         out: paths.analyses,
         model: args.model,
+        effort: args.effort,
         workers: args.workers,
         limit: args.limit,
         segmentId: null
       };
       if (args.engine === "claude-cli") await analyzeWithClaudeCli(analyzeOpts);
-      else await analyzeWithCodexCli({ ...analyzeOpts, effort: "medium" });
+      else await analyzeWithCodexCli({ ...analyzeOpts, effort: args.effort || "medium" });
     });
     if (!ok) return;
   }

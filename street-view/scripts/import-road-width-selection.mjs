@@ -68,6 +68,10 @@ export function buildSelectedFeatures(sourceData, selectionItems) {
       },
       properties: {
         segment_id: String(segment.id),
+        // segment.id is only a position in the road-width export; osm_id is the durable
+        // identity. Null on exports generated before it was carried through.
+        osm_id: segment.osm != null ? Number(segment.osm) : null,
+        street_name: segment.nm || null,
         label: item.label,
         notes: item.notes,
         width_m: Number(segment.w),

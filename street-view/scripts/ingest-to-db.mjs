@@ -13,7 +13,10 @@ function parseArgs(argv) {
     databaseUrl: process.env.DATABASE_URL,
     provider: "openai",
     model: null,
-    batchId: null,
+    runId: null,
+    area: null,
+    promptVersion: "v2",
+    notes: null,
     segmentSuffix: "",
     dryRun: true
   };
@@ -25,15 +28,19 @@ function parseArgs(argv) {
     else if (argv[i] === "--database-url") args.databaseUrl = argv[++i];
     else if (argv[i] === "--provider") args.provider = argv[++i];
     else if (argv[i] === "--model") args.model = argv[++i];
-    else if (argv[i] === "--batch-id") args.batchId = argv[++i];
+    else if (argv[i] === "--run-id") args.runId = argv[++i];
+    else if (argv[i] === "--area") args.area = argv[++i];
+    else if (argv[i] === "--prompt-version") args.promptVersion = argv[++i];
+    else if (argv[i] === "--notes") args.notes = argv[++i];
     else if (argv[i] === "--segment-suffix") args.segmentSuffix = argv[++i];
     else if (argv[i] === "--write") args.dryRun = false;
     else if (argv[i] === "--help") {
-      console.log("Usage: node scripts/ingest-to-db.mjs --candidates path --analyses path [--write] [--provider openai] [--batch-id id]");
+      console.log("Usage: node scripts/ingest-to-db.mjs --candidates path --analyses path --run-id id --area name [--write]");
       console.log("");
-      console.log("Reads AI analysis results and inserts parking polygons into parking.area.");
+      console.log("Appends AI analysis results as observations under one run (parking.observation).");
+      console.log("Runs never overwrite each other, so the same area can be analysed by any number");
+      console.log("of models. Human verdicts (parking.verdict) are never written here.");
       console.log("Default is dry run. Pass --write to actually insert.");
-      console.log("Requires DATABASE_URL in the environment.");
       process.exit(0);
     } else {
       throw new Error(`Unknown argument: ${argv[i]}`);
@@ -42,6 +49,9 @@ function parseArgs(argv) {
 
   if (!args.candidates || !args.analyses) {
     throw new Error("--candidates and --analyses are required. Run with --help for usage.");
+  }
+  if (!args.dryRun && !args.runId) {
+    throw new Error("--run-id is required when writing. Each run is a distinct, permanent set of observations.");
   }
 
   return args;
@@ -122,32 +132,46 @@ async function main() {
           endSetbackM: 3
         });
 
-        for (const ring of rings) {
-          const geom = JSON.stringify({ type: "Polygon", coordinates: [ring] });
-          const tags = {
-            parking_manner: sideAssessment.parking_manner,
-            parking_level: sideAssessment.parking_level,
-            formality: sideAssessment.formality,
-            label: segment.label,
-            station_index: si,
-            station_count: stationCount,
-            decision: stationAssessment.decision,
-            overall_notes: assessment.overall_notes
-          };
+        if (rings.length === 0) continue;
 
-          rows.push({
-            segment_id: `${segmentId}${stationSuffix}${args.segmentSuffix}`,
-            side,
-            geom,
-            tags: JSON.stringify(tags),
-            confidence: sideAssessment.confidence,
-            provider: args.provider,
-            model: resolvedModel,
-            batch_id: args.batchId,
-            cost_usd: typeof result.cost_usd === "number" ? result.cost_usd : (result.cost_usd?.total || null)
-          });
-          insertCount += 1;
-        }
+        // One row per (segment_id, side): a curved street yields several rings
+        // (split at the bends) and they are all one parking area. Emitting a row
+        // per ring made them collide on the (segment_id, side, version) key, so
+        // each ring un-currented the one before it and only the last survived.
+        const geom = JSON.stringify({
+          type: "MultiPolygon",
+          coordinates: rings.map((ring) => [ring])
+        });
+        const tags = {
+          parking_manner: sideAssessment.parking_manner,
+          parking_level: sideAssessment.parking_level,
+          formality: sideAssessment.formality,
+          label: segment.label,
+          station_index: si,
+          station_count: stationCount,
+          part_count: rings.length,
+          decision: stationAssessment.decision,
+          overall_notes: assessment.overall_notes
+        };
+
+        rows.push({
+          segment_id: `${segmentId}${stationSuffix}${args.segmentSuffix}`,
+          side,
+          geom,
+          tags: JSON.stringify(tags),
+          // The model's visual reasoning ("bollards along the kerb", "no-parking sign").
+          // This is the part a human actually reads when reviewing, and it used to live
+          // only in the analyses JSON on disk — i.e. one `rm` away from being lost.
+          evidence: JSON.stringify(sideAssessment.evidence || []),
+          manner: sideAssessment.parking_manner,
+          level: sideAssessment.parking_level,
+          formality: sideAssessment.formality,
+          confidence: sideAssessment.confidence,
+          provider: args.provider,
+          model: resolvedModel,
+          cost_usd: typeof result.cost_usd === "number" ? result.cost_usd : (result.cost_usd?.total || null)
+        });
+        insertCount += 1;
       }
     }
   }
@@ -208,49 +232,54 @@ async function main() {
       }
       console.log(`Upserted ${segmentIds.length} segments into parking.segment`);
 
-      let skippedReviewed = 0;
+      // The run this ingest belongs to. Re-ingesting the same run_id overwrites only
+      // that run's own observations; every other run is untouched.
+      await client.query(`
+        INSERT INTO parking.run (run_id, area, provider, model, engine, prompt_version, nominal_cost_usd, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (run_id) DO UPDATE SET
+          area = EXCLUDED.area, provider = EXCLUDED.provider, model = EXCLUDED.model,
+          engine = EXCLUDED.engine, prompt_version = EXCLUDED.prompt_version,
+          nominal_cost_usd = EXCLUDED.nominal_cost_usd, updated_at = now()
+      `, [
+        args.runId, args.area, args.provider, resolvedModel,
+        analysisData.engine || null, args.promptVersion,
+        analysisData.billing?.total_nominal_cost_usd ?? null,
+        args.notes
+      ]);
+
       for (const r of rows) {
-        // Skip if this segment+side has already been reviewed (confirmed/suspect)
-        const { rows: reviewCheck } = await client.query(`
-          SELECT 1 FROM parking.area
-          WHERE segment_id = $1 AND side = $2 AND current = true
-            AND review_status IN ('confirmed', 'suspect')
-          LIMIT 1
-        `, [r.segment_id, r.side]);
-        if (reviewCheck.length > 0) {
-          skippedReviewed += 1;
-          continue;
-        }
-
-        // Mark previous versions as not current
+        // Append-only per run. No version juggling, no un-currenting, and — deliberately —
+        // no write path to parking.verdict: a later, smarter model cannot overwrite a
+        // decision a human already made about a physical space.
         await client.query(`
-          UPDATE parking.area SET current = false, updated_at = now()
-          WHERE segment_id = $1 AND side = $2 AND current = true
-        `, [r.segment_id, r.side]);
-
-        // Get next version
-        const { rows: vRows } = await client.query(`
-          SELECT COALESCE(MAX(version), 0) + 1 AS v FROM parking.area
-          WHERE segment_id = $1 AND side = $2
-        `, [r.segment_id, r.side]);
-
-        await client.query(`
-          INSERT INTO parking.area
-            (segment_id, side, version, current, active, reviewed, review_status, geom, tags,
-             confidence, provider, model, batch_id, cost_usd, updated_by)
-          VALUES ($1, $2, $3, true, true, false, 'pending',
-                  ST_SetSRID(ST_GeomFromGeoJSON($4), 4326), $5,
-                  $6, $7, $8, $9, $10, $11)
+          INSERT INTO parking.observation
+            (run_id, segment_id, side, osm_id, street_name, geom,
+             parking_manner, parking_level, formality, confidence, evidence, tags, cost_usd)
+          SELECT $1, $2, $3, s.osm_id, s.street_name,
+                 -- UnaryUnion dissolves the rings where they overlap at a bend: they are one
+                 -- continuous kerb strip, and overlapping parts would make the MultiPolygon invalid.
+                 ST_Multi(ST_UnaryUnion(ST_SetSRID(ST_GeomFromGeoJSON($4), 4326))),
+                 $5, $6, $7, $8, $9, $10, $11
+          FROM (SELECT $2::text AS sid) k
+          LEFT JOIN parking.segment s ON s.segment_id = k.sid
+          ON CONFLICT (run_id, segment_id, side) DO UPDATE SET
+            geom = EXCLUDED.geom, parking_manner = EXCLUDED.parking_manner,
+            parking_level = EXCLUDED.parking_level, formality = EXCLUDED.formality,
+            confidence = EXCLUDED.confidence, evidence = EXCLUDED.evidence, tags = EXCLUDED.tags
         `, [
-          r.segment_id, r.side, vRows[0].v,
-          r.geom, r.tags,
-          r.confidence, r.provider, r.model, r.batch_id, r.cost_usd,
-          `ai-pipeline-${r.provider}`
+          args.runId, r.segment_id, r.side, r.geom,
+          r.manner, r.level, r.formality, r.confidence, r.evidence, r.tags, r.cost_usd
         ]);
       }
 
+      await client.query(`
+        UPDATE parking.run SET segment_count = (SELECT COUNT(*) FROM parking.observation WHERE run_id = $1)
+        WHERE run_id = $1
+      `, [args.runId]);
+
       await client.query("COMMIT");
-      console.log(`Inserted ${rows.length - skippedReviewed} parking areas into parking.area (${skippedReviewed} skipped — already reviewed)`);
+      console.log(`Inserted ${rows.length} observations into run "${args.runId}" (append-only; other runs and all human verdicts untouched)`);
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;

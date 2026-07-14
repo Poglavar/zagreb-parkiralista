@@ -7,7 +7,9 @@ This is the baseline layer the rest of the pipeline diffs against.
 """
 
 import argparse
+import hashlib
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -247,6 +249,106 @@ def element_to_feature(elem: dict, m2_per_stall: float) -> dict | None:
     }
 
 
+def load_dotenv_minimal(env_path: Path) -> None:
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def resolve_database_url() -> str | None:
+    for env in (Path(__file__).parent.parent / ".env",
+                Path(__file__).parent.parent.parent / "cadastre-data" / "api" / ".env"):
+        load_dotenv_minimal(env)
+        if os.environ.get("DATABASE_URL"):
+            return os.environ["DATABASE_URL"]
+    return None
+
+
+def write_to_db(features: list[dict]) -> int:
+    """Upsert into parking.osm_parking with spatial versioning.
+
+    A feature only gets a new version when its geometry or tags actually changed
+    (geom_hash), so a refetch that finds nothing new writes nothing. Anything OSM stopped
+    returning gets date_missing set rather than deleted — a car park that disappears is a
+    fact worth keeping, not a row to drop.
+    """
+    import psycopg  # imported here so the GeoJSON path needs no DB driver
+
+    db_url = resolve_database_url()
+    if not db_url:
+        print("ERROR: DATABASE_URL not set (checked .env and cadastre-data/api/.env)", file=sys.stderr)
+        return 2
+
+    seen: set[tuple[str, int]] = set()
+    inserted = unchanged = 0
+
+    with psycopg.connect(db_url) as conn, conn.cursor() as cur:
+        for feat in features:
+            p = feat["properties"]
+            key = (p["osm_type"], int(p["osm_id"]))
+            seen.add(key)
+            geom_json = json.dumps(feat["geometry"], sort_keys=True, separators=(",", ":"))
+            payload = geom_json + json.dumps(p.get("all_tags") or {}, sort_keys=True, separators=(",", ":"))
+            geom_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+            cur.execute(
+                "SELECT geom_hash FROM parking.osm_parking "
+                "WHERE osm_type = %s AND osm_id = %s AND current = true",
+                key,
+            )
+            row = cur.fetchone()
+            if row and row[0] == geom_hash:
+                unchanged += 1
+                continue
+
+            if row:
+                cur.execute(
+                    "UPDATE parking.osm_parking SET current = false, updated_at = now() "
+                    "WHERE osm_type = %s AND osm_id = %s AND current = true",
+                    key,
+                )
+            cur.execute(
+                """
+                INSERT INTO parking.osm_parking
+                    (osm_type, osm_id, version, current, geom_hash, name, parking, parking_kind,
+                     access, fee, operator, surface, area_m2, capacity_osm, capacity_estimated,
+                     capacity, capacity_source, all_tags, geom)
+                VALUES (%s, %s,
+                        (SELECT COALESCE(MAX(version), 0) + 1 FROM parking.osm_parking
+                         WHERE osm_type = %s AND osm_id = %s),
+                        true, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326))
+                """,
+                (p["osm_type"], p["osm_id"], p["osm_type"], p["osm_id"], geom_hash,
+                 p.get("name"), p.get("parking"), p.get("parking_kind"), p.get("access"),
+                 p.get("fee"), p.get("operator"), p.get("surface"), p.get("area_m2"),
+                 p.get("capacity_osm"), p.get("capacity_estimated"), p.get("capacity"),
+                 p.get("capacity_source"), json.dumps(p.get("all_tags") or {}), geom_json),
+            )
+            inserted += 1
+
+        # Anything current in the table that OSM no longer returns has gone from OSM.
+        cur.execute(
+            "SELECT osm_type, osm_id FROM parking.osm_parking WHERE current AND date_missing IS NULL"
+        )
+        gone = [k for k in cur.fetchall() if (k[0], int(k[1])) not in seen]
+        for k in gone:
+            cur.execute(
+                "UPDATE parking.osm_parking SET date_missing = now(), updated_at = now() "
+                "WHERE osm_type = %s AND osm_id = %s AND current = true",
+                k,
+            )
+        conn.commit()
+
+    log(f"parking.osm_parking: {inserted} new/changed, {unchanged} unchanged, {len(gone)} gone from OSM")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -263,7 +365,13 @@ def main() -> int:
     parser.add_argument(
         "--out",
         default="../data/osm/parking_zagreb.geojson",
-        help="Output GeoJSON path (relative to script dir)",
+        help="Output GeoJSON path (relative to script dir). Ignored when --to-db is set.",
+    )
+    parser.add_argument(
+        "--to-db",
+        action="store_true",
+        help="Write to parking.osm_parking (versioned) instead of a GeoJSON file. Preferred: "
+             "a file on disk drifts from OSM with nothing to say so.",
     )
     args = parser.parse_args()
 
@@ -346,9 +454,13 @@ def main() -> int:
         "features": features,
     }
 
+    if args.to_db:
+        return write_to_db(features)
+
     with out_path.open("w", encoding="utf-8") as f:
         json.dump(fc, f, ensure_ascii=False, separators=(",", ":"))
     log(f"Wrote {out_path} ({out_path.stat().st_size / 1024:.1f} KiB)")
+    log("NOTE: a GeoJSON on disk goes stale silently. Prefer --to-db (parking.osm_parking).")
     return 0
 
 

@@ -388,7 +388,9 @@ function buildOsmKindLayer(features, kind) {
 
 async function loadOsmLayer(map) {
   try {
-    const res = await fetch("data/osm/parking_zagreb.geojson", { cache: "no-store" });
+    // From the API (parking.osm_parking), not a checked-out GeoJSON: the file drifted from
+    // OSM with nothing to show for it, and the table is versioned so changes are visible.
+    const res = await fetch(`${API_BASE}/api/parking/osm`, { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     osmFeatureCollection = await res.json();
 

@@ -90,6 +90,14 @@ export async function fetchStreetViewImages({ candidates, metadata, out, imageDi
   const area = areaFromPath(candidates);
   let imageIndex = 0;
 
+  // Manifest paths must be relative to the street-view root and follow the real
+  // imageDir (out/<slug>/images for per-area runs), otherwise every consumer
+  // resolves them against the default out/images and finds nothing.
+  const manifestImageDir = path
+    .relative(resolveFrom(import.meta.url, ".."), path.resolve(imageDir))
+    .split(path.sep)
+    .join("/");
+
   console.log(
     `Street View image fetch: ${payableItems.length} billable image requests, ${delayMs}ms spacing, marginal cost $0.00 if free quota remains or about $${billingEstimate.estimated_cost_usd_if_first_paid_tier_applies.toFixed(3)} at the first paid tier.`
   );
@@ -108,7 +116,7 @@ export async function fetchStreetViewImages({ candidates, metadata, out, imageDi
     imageIndex += 1;
     reportProgress("sv-images", { current: imageIndex, total: payableItems.length, message: `${capture.capture_id}.jpg`, area });
     const panoId = item.response.pano_id;
-    const relativePath = `out/images/${capture.capture_id}.jpg`;
+    const relativePath = `${manifestImageDir}/${capture.capture_id}.jpg`;
     const absolutePath = path.resolve(imageDir, `${capture.capture_id}.jpg`);
 
     // Skip if already downloaded (resume support)

@@ -26,6 +26,7 @@ function parseArgs(argv) {
     images: resolveFrom(import.meta.url, "../out/street-view-images.json"),
     out: resolveFrom(import.meta.url, "../out/claude-cli-analyses.json"),
     model: "sonnet",
+    effort: null,
     workers: 3,
     limit: null,
     segmentId: null
@@ -36,11 +37,12 @@ function parseArgs(argv) {
     else if (argv[i] === "--images") args.images = argv[++i];
     else if (argv[i] === "--out") args.out = argv[++i];
     else if (argv[i] === "--model") args.model = argv[++i];
+    else if (argv[i] === "--effort") args.effort = argv[++i];
     else if (argv[i] === "--workers") args.workers = Number(argv[++i]);
     else if (argv[i] === "--limit") args.limit = Number(argv[++i]);
     else if (argv[i] === "--segment-id") args.segmentId = String(argv[++i]);
     else if (argv[i] === "--help") {
-      console.log("Usage: node scripts/analyze-claude-cli.mjs --candidates path --images path --out path [--segment-id id] [--limit N] [--workers 3] [--model sonnet]");
+      console.log("Usage: node scripts/analyze-claude-cli.mjs --candidates path --images path --out path [--segment-id id] [--limit N] [--workers 3] [--model sonnet] [--effort high]");
       console.log("Runs parking assessment through the local Claude Code CLI (subscription-billed, no API key).");
       process.exit(0);
     } else {
@@ -65,7 +67,7 @@ function buildCliPrompt(segment, captureItems) {
   ].join("\n");
 }
 
-function runClaudeCli(prompt, model, maxTurns) {
+function runClaudeCli(prompt, model, maxTurns, effort) {
   // Strip Anthropic API keys so the CLI bills the subscription, not a key.
   const env = { ...process.env };
   delete env.ANTHROPIC_API_KEY;
@@ -82,6 +84,8 @@ function runClaudeCli(prompt, model, maxTurns) {
     "--model", model,
     "--no-session-persistence"
   ];
+  // Reasoning effort (low|medium|high|xhigh|max). Omitted = CLI default for the model.
+  if (effort) cliArgs.push("--effort", effort);
 
   return new Promise((resolve, reject) => {
     const proc = spawn("claude", cliArgs, { env });
@@ -112,7 +116,7 @@ function runClaudeCli(prompt, model, maxTurns) {
   });
 }
 
-export async function analyzeWithClaudeCli({ candidates, images, out, model, workers, limit, segmentId }) {
+export async function analyzeWithClaudeCli({ candidates, images, out, model, effort, workers, limit, segmentId }) {
   const candidateData = await readJson(candidates);
   const imageManifest = await readJson(images);
   const imageByCaptureId = new Map(
@@ -154,7 +158,7 @@ export async function analyzeWithClaudeCli({ candidates, images, out, model, wor
   }
 
   const queue = limit ? segmentsWithImages.slice(0, limit) : segmentsWithImages;
-  log(`claude-cli analysis: ${queue.length} segments to process, model=${model}, workers=${workers}`);
+  log(`claude-cli analysis: ${queue.length} segments to process, model=${model}, effort=${effort || "default"}, workers=${workers}`);
 
   let processed = 0;
   let totalNominal = results.reduce((s, r) => s + (r.nominal_cost_usd || 0), 0);
@@ -164,6 +168,7 @@ export async function analyzeWithClaudeCli({ candidates, images, out, model, wor
     await writeJson(out, {
       generated_at: new Date().toISOString(),
       model,
+      effort,
       provider: "anthropic",
       engine: "claude-cli",
       billing: { total_nominal_cost_usd: Number(totalNominal.toFixed(6)), note: "billed to Claude subscription, not API" },
@@ -180,7 +185,7 @@ export async function analyzeWithClaudeCli({ candidates, images, out, model, wor
       const maxTurns = 10 + item.availableCaptures.length * 2;
       const t0 = Date.now();
       try {
-        const wrapper = await runClaudeCli(prompt, model, maxTurns);
+        const wrapper = await runClaudeCli(prompt, model, maxTurns, effort);
         const usage = wrapper.usage || {};
         const nominal = wrapper.total_cost_usd || 0;
         totalNominal += nominal;

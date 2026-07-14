@@ -138,6 +138,15 @@ WHAT DOES NOT COUNT:
 - Cars stopped briefly in a travel lane (loading, drop-off).
 - Bus stops, crosswalks, fire hydrant zones, or yellow curb no-parking markings.
 - Tram tracks or tram stops — these indicate no-parking zones.
+- Cars that belong to a DIFFERENT carriageway: on boulevards, cars parked on a
+  service/access lane that is separated from this segment's carriageway by a
+  tree belt, hedge, or green strip several metres wide. Those cars are real
+  parking, but they belong to that other lane, not to this segment — and the
+  polygon we draw is anchored to THIS segment's kerb, so counting them would put
+  the polygon in the middle of the tree belt. Exclude them and say so in the
+  evidence. This exclusion is narrow: parking on the sidewalk, verge, or
+  shoulder directly at this segment's own kerb DOES count, and is exactly the
+  informal parking we are looking for.
 
 CLASSIFICATION:
 - "parallel": cars parked along the road direction.
@@ -148,6 +157,42 @@ CLASSIFICATION:
 - "road_level": parking footprint is on the carriageway surface.
 - "sidewalk": parking footprint is on an elevated sidewalk or pavement.
 - "gravel_shoulder": parking on an unpaved shoulder or dirt strip.
+
+PARKING MANNER IS THE MOST CONSEQUENTIAL FIELD — GET IT RIGHT:
+The manner you choose sets how deep a strip of ground is recorded as parking:
+perpendicular = 5.5 m deep, diagonal = 3.9 m, parallel = 2.5 m. Calling
+perpendicular parking "parallel" silently discards more than half of the real
+parking area, so decide it deliberately rather than defaulting.
+
+How to tell them apart — go by WHICH FACE OF THE CAR you see, not by vibes:
+- PERPENDICULAR: you see the front or rear FACE of the cars (grille, headlights,
+  bumper, number plate) squared up toward the street. Cars sit side-by-side like
+  teeth on a comb, and the row extends away from the carriageway. The parking
+  strip is roughly a car-length deep (~5 m).
+- PARALLEL: you see the FLANK of the cars (doors, full side profile) along the
+  kerb. Cars form a single-file line following the kerb. The strip is only about
+  a car-width deep (~2.5 m).
+- DIAGONAL: you see a three-quarter view — the front/rear face AND one flank at
+  once. Cars are consistently angled, like a herringbone.
+
+Corroborating cues, in order of reliability:
+1. Painted bay lines: bays running perpendicular to the kerb mean perpendicular
+   or diagonal parking. Bays drawn as a long strip parallel to the kerb mean
+   parallel parking.
+2. Depth of the paved/marked area beside the carriageway: a bay area deeper than
+   about 4 m cannot be parallel parking — a parallel lane only needs ~2.5 m.
+3. Spacing: perpendicular cars are packed with almost no gap between them;
+   parallel cars leave a manoeuvring gap between each vehicle.
+
+Do NOT use "mixed" or "unknown" as a way to avoid committing. Pick the DOMINANT
+manner for that side of that station — the one most cars actually follow.
+Reserve "mixed" for when two manners genuinely coexist on the same side of the
+same station (e.g. a perpendicular bay row that becomes a parallel kerb lane
+partway along). Use "unknown" only when cars or markings are present but you
+truly cannot see how they are oriented.
+
+When you record a manner, your evidence must name the cue you used — which face
+of the car you saw, the bay-line orientation, or the strip depth.
 
 LEFT/RIGHT MAPPING:
 - Forward captures: segment-left = image-left, segment-right = image-right.
@@ -203,6 +248,10 @@ export function buildUserPrompt(segment) {
   }
 
   return [
+    // The street name is worth more to the model than the internal label ("TRNJE 27"
+    // says nothing); it is null on segments imported before the road-width export
+    // started carrying it.
+    segment.street_name ? `Street: ${segment.street_name}` : null,
     `Segment label: ${segment.label}`,
     `Segment id: ${segment.segment_id}`,
     `Segment length: ${segment.length_m.toFixed(1)} m`,
@@ -215,5 +264,5 @@ export function buildUserPrompt(segment) {
     "",
     "Return one assessment per station. Each station should be evaluated independently.",
     "If one side is visible only weakly, keep the confidence lower instead of over-claiming."
-  ].join("\n");
+  ].filter((line) => line !== null).join("\n");
 }
