@@ -1,0 +1,125 @@
+<!doctype html>
+<!-- Status obrade: koji dijelovi grada imaju snimke, koji su analizirani (i s koliko
+     modela), a koji su ljudski provjereni. Čita parking.segment_status kroz
+     /api/parking/coverage, pa radi jednako lokalno i na prod-u. -->
+<html lang="hr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Status obrade — Zagreb parkirališta</title>
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="obrada.css?v=1" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Status obrade</h1>
+    <nav class="topbar-nav">
+      <a href="../index.html">Karta</a>
+      <a href="../unos/review.html">Provjera ulica</a>
+      <a href="http://localhost:8017/" id="nav-live" hidden>Procesi uživo →</a>
+      <a href="https://zagreb.lol" class="topbar-nav-ext">Dio projekta zagreb.lol</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Što se obrađuje upravo sada. Ista tema kao ostatak stranice, samo druga vremenska
+         skala: dolje piše što je obrađeno, ovdje što se obrađuje. Čita lokalnu nadzornu
+         ploču (status/server.mjs, samo 127.0.0.1); kad nije pokrenuta, cijela traka
+         nestane umjesto da prikazuje grešku. -->
+    <section class="live" id="live" hidden>
+      <div class="live-head">
+        <span class="live-dot" aria-hidden="true"></span>
+        <h2>U tijeku sada</h2>
+        <a href="http://localhost:8017/" class="live-link">Otvori nadzornu ploču →</a>
+      </div>
+      <div id="live-body" class="live-body"></div>
+    </section>
+
+    <section class="summary" id="summary" aria-live="polite">
+      <div class="loading">Učitavanje…</div>
+    </section>
+
+    <section class="controls">
+      <div class="control-group" role="radiogroup" aria-label="Razina prikaza">
+        <button type="button" class="seg-btn active" data-level="mo">Mjesni odbori</button>
+        <button type="button" class="seg-btn" data-level="gc">Gradske četvrti</button>
+      </div>
+      <label class="control-check">
+        <input type="checkbox" id="hide-done" />
+        Sakrij dovršena područja
+      </label>
+      <div class="control-spacer"></div>
+      <input type="search" id="filter" placeholder="Traži područje ili ulicu…" aria-label="Traži područje" />
+    </section>
+
+    <section class="map-wrap">
+      <div id="map"></div>
+      <div class="legend" id="legend">
+        <div class="legend-title">Udio analiziranih segmenata</div>
+        <div class="legend-scale">
+          <span class="sw sw-0"></span><span class="sw sw-1"></span><span class="sw sw-2"></span>
+          <span class="sw sw-3"></span><span class="sw sw-4"></span>
+        </div>
+        <div class="legend-ends"><span>0 %</span><span>100 %</span></div>
+        <div class="legend-note" id="legend-note">Klikni područje za detalje po ulicama.</div>
+      </div>
+    </section>
+
+    <section class="detail" id="detail" hidden>
+      <div class="detail-head">
+        <h2 id="detail-title">—</h2>
+        <button type="button" id="detail-close" class="ghost-btn" aria-label="Zatvori detalje">✕</button>
+      </div>
+      <div id="detail-stats" class="detail-stats"></div>
+      <div class="table-wrap">
+        <table id="segment-table">
+          <thead>
+            <tr>
+              <th>Ulica</th>
+              <th class="num" title="Duljina segmenta">m</th>
+              <th class="num" title="Snimke skinute / planirane">Snimke</th>
+              <th class="num" title="Broj obrada (modela) koje su pokrile ovaj segment">Obrade</th>
+              <th>Stanje</th>
+            </tr>
+          </thead>
+          <tbody id="segment-tbody"></tbody>
+        </table>
+      </div>
+      <p class="detail-hint">
+        Segment koji je analiziran i na kojem model <em>nije</em> našao parkiranje je
+        <strong>obrađen</strong>, ne neobrađen — to je nalaz, a ne rupa u podacima.
+      </p>
+    </section>
+
+    <section class="queue">
+      <h2>Red obrade — koncentrični krugovi od Trga bana Jelačića</h2>
+      <div class="table-wrap">
+        <table id="area-table">
+          <thead>
+            <tr>
+              <th class="num" title="Redoslijed po udaljenosti od Trga bana Jelačića">Krug</th>
+              <th>Područje</th>
+              <th class="parent-col">Četvrt</th>
+              <th class="num">Segm.</th>
+              <th class="num">km</th>
+              <th class="num" title="Segmenti koji imaju barem jednu snimku">Snimke</th>
+              <th class="num" title="Segmenti analizirani barem jednom">Analiz.</th>
+              <th class="num" title="Segmenti analizirani s dva ili više modela">≥2 mod.</th>
+              <th class="num" title="Imaju snimke, ali još nisu analizirani — besplatan posao">Spremno</th>
+              <th class="num" title="Segmenti s ljudskom odlukom">Ljudski</th>
+              <th>Napredak</th>
+            </tr>
+          </thead>
+          <tbody id="area-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="obrada.js?v=1"></script>
+</body>
+</html>

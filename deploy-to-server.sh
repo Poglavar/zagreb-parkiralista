@@ -62,7 +62,12 @@ rsync -a data/final/informal_parking.geojson ${SERVER_USER}@${SERVER_HOST}:${WEB
 # 2b. Diagnostic viewers (lane-widths + yolo-street-view) + provjera pages
 echo "Deploying diagnostic viewers…"
 ${SSH_CMD} "
-    mkdir -p ${WEB_ROOT}/lane-widths/data ${WEB_ROOT}/yolo-street-view/out ${WEB_ROOT}/provjera
+    mkdir -p ${WEB_ROOT}/lane-widths/data ${WEB_ROOT}/yolo-street-view/out ${WEB_ROOT}/provjera ${WEB_ROOT}/obrada
+    # Status obrade is API-backed (reads /api/parking/coverage), so it works from a phone.
+    # The status/ dashboard is a different thing and stays localhost-only.
+    cp ${REPO_PATH}/obrada/obrada.html ${WEB_ROOT}/obrada/obrada.html
+    cp ${REPO_PATH}/obrada/obrada.css  ${WEB_ROOT}/obrada/obrada.css
+    cp ${REPO_PATH}/obrada/obrada.js   ${WEB_ROOT}/obrada/obrada.js
     cp ${REPO_PATH}/provjera/aerial.html ${WEB_ROOT}/provjera/aerial.html
     cp ${REPO_PATH}/provjera/aerial.css  ${WEB_ROOT}/provjera/aerial.css
     cp ${REPO_PATH}/provjera/aerial.js   ${WEB_ROOT}/provjera/aerial.js
@@ -125,6 +130,9 @@ ${SSH_CMD} "
     # index.html: index.css and map.js (already have ?v=N)
     sed -i -E 's/index\.css(\?v=[0-9]*)?/index.css?v=${CACHE_TS}/g' ${WEB_ROOT}/index.html
     sed -i -E 's/map\.js(\?v=[0-9]*)?/map.js?v=${CACHE_TS}/g' ${WEB_ROOT}/index.html
+    # obrada.html: obrada.css and obrada.js
+    sed -i -E 's/obrada\.css(\?v=[0-9]*)?/obrada.css?v=${CACHE_TS}/g' ${WEB_ROOT}/obrada/obrada.html
+    sed -i -E 's/obrada\.js(\?v=[0-9]*)?/obrada.js?v=${CACHE_TS}/g' ${WEB_ROOT}/obrada/obrada.html
 "
 
 echo "=== Deployment complete ==="

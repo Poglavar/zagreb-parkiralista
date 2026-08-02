@@ -249,7 +249,15 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.url.startsWith("/status.json")) {
       const body = JSON.stringify(await buildStatus());
-      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+        // Lets the "Status obrade" page (served from another localhost port) show what is
+        // running right now beside what has already been processed — the two answer the
+        // same question at different time scales. Safe to open up: this server binds
+        // 127.0.0.1 and is never deployed, so there is no remote origin to protect from.
+        "Access-Control-Allow-Origin": "*"
+      });
       return res.end(body);
     }
     const file = req.url === "/" || req.url.startsWith("/index") ? "status.html"
