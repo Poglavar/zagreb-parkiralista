@@ -1295,11 +1295,36 @@ function init() {
     layersBtn.classList.remove("active");
   });
 
-  // "Status obrade" nav link only exists locally (the status server binds
-  // 127.0.0.1 and isn't deployed), so reveal it only on localhost.
+  // "Procesi uživo" only exists locally (the status server binds 127.0.0.1 and isn't
+  // deployed), so reveal it only on localhost. "Status obrade" is API-backed and always
+  // shown.
   if (["localhost", "127.0.0.1"].includes(window.location.hostname)) {
     const statusLink = document.getElementById("nav-status");
     if (statusLink) statusLink.hidden = false;
+  }
+
+  // "Alati" dropdown. Closes on outside click and on Escape — a menu that can only be
+  // dismissed by clicking the button again is the kind that ends up left open over the map.
+  const toolsBtn = document.getElementById("tools-btn");
+  const toolsDropdown = document.getElementById("tools-dropdown");
+  if (toolsBtn && toolsDropdown) {
+    const setToolsOpen = (open) => {
+      toolsDropdown.hidden = !open;
+      toolsBtn.setAttribute("aria-expanded", String(open));
+    };
+    toolsBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setToolsOpen(toolsDropdown.hidden);
+    });
+    document.addEventListener("click", (e) => {
+      if (!toolsDropdown.hidden && !toolsDropdown.contains(e.target)) setToolsOpen(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !toolsDropdown.hidden) {
+        setToolsOpen(false);
+        toolsBtn.focus();
+      }
+    });
   }
 
   // Explicit close buttons in the panel headers (mobile-only affordance)

@@ -595,6 +595,85 @@ html, body {
 .topbar-nav a:hover { text-decoration: underline; }
 .topbar-nav a.topbar-nav-ext { color: #aaa; }
 
+/* "Alati" dropdown — the crosslinks to the other tools. They used to sit flat in the
+   topbar and cost a whole row; none of them is used while looking at the map. */
+.tools-menu { position: relative; }
+
+.tools-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: rgba(29, 78, 216, 0.08);
+  border: 1px solid rgba(29, 78, 216, 0.25);
+  border-radius: 6px;
+  padding: 4px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tools-btn:hover { background: rgba(29, 78, 216, 0.14); }
+.tools-btn[aria-expanded="true"] { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+
+.tools-caret {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid currentColor;
+  transition: transform 120ms ease;
+}
+.tools-btn[aria-expanded="true"] .tools-caret { transform: rotate(180deg); }
+
+.tools-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 190px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  padding: 6px;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+}
+.tools-dropdown[hidden] { display: none; }
+
+.tools-dropdown a {
+  font-size: 12px;
+  color: #1f2937;
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.tools-dropdown a:hover { background: #eef2ff; color: #1d4ed8; text-decoration: none; }
+
+.tools-group-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9ca3af;
+  padding: 7px 10px 3px;
+}
+.tools-group-label:first-child { padding-top: 3px; }
+
+/* On desktop the button sits at the right of the topbar, so the panel hangs left from it.
+   When the topbar wraps (mobile) the button moves to the left edge and that same rule
+   pushes the panel off-screen — measured at left: -122px on a 380px viewport. Anchor it
+   to the button's left there instead, and cap the width so it can never overflow either
+   edge whatever the button's position. */
+@media (max-width: 720px) {
+  .tools-dropdown {
+    right: auto;
+    left: 0;
+    max-width: calc(100vw - 24px);
+  }
+}
+
 a.popup-review-link {
   display: inline-block;
   margin-top: 6px;

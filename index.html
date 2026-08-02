@@ -27,12 +27,31 @@
 
   <header id="topbar">
     <h1><span class="topbar-title-text">Zagrebačka parkirališta</span> <span class="topbar-tagline">Sveobuhvatni prikaz parkirališnih mjesta u gradu</span></h1>
+    <!-- Poveznice na ostale alate stoje u padajućem izborniku: šest ravnih linkova
+         trošilo je cijeli redak topbara, a nijedan se ne koristi tijekom gledanja karte.
+         "Alati", ne "Postavke" — nijedan ne mijenja postavku, svaki vodi na drugi alat. -->
     <nav class="topbar-nav">
-      <a href="unos/review.html">Provjera ulica</a>
-      <a href="provjera/aerial.html">Provjera aerial</a>
-      <a href="lane-widths/viewer.html">Širine traka</a>
-      <a href="yolo-street-view/viewer.html">YOLO pregled</a>
-      <a href="http://localhost:8017/" id="nav-status" hidden>Status obrade</a>
+      <div class="tools-menu">
+        <button type="button" id="tools-btn" class="tools-btn"
+                aria-haspopup="true" aria-expanded="false" aria-controls="tools-dropdown">
+          Alati
+          <span class="tools-caret" aria-hidden="true"></span>
+        </button>
+        <div id="tools-dropdown" class="tools-dropdown" hidden>
+          <div class="tools-group-label">Provjera</div>
+          <a href="unos/review.html">Provjera ulica</a>
+          <a href="provjera/aerial.html">Provjera aerial</a>
+          <div class="tools-group-label">Dijagnostika</div>
+          <a href="lane-widths/viewer.html">Širine traka</a>
+          <a href="yolo-street-view/viewer.html">YOLO pregled</a>
+          <div class="tools-group-label">Obrada</div>
+          <a href="obrada/obrada.html">Status obrade</a>
+          <!-- Lokalna nadzorna ploča procesa u tijeku (status/server.mjs); vidljiva samo
+               na localhostu jer nikad nije deployana. Status obrade iznad je API-backed
+               i radi svugdje. -->
+          <a href="http://localhost:8017/" id="nav-status" hidden>Procesi uživo</a>
+        </div>
+      </div>
       <a href="https://zagreb.lol" class="topbar-nav-ext">Dio projekta zagreb.lol</a>
     </nav>
     <div class="formality-filter">
