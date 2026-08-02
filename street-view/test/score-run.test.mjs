@@ -105,3 +105,45 @@ test("a run with no positives at all does not report a precision of 1", () => {
   assert.equal(s.recall, 0);
   assert.equal(s.mannerAccuracy, null);
 });
+
+test("hand-drawn spaces are not scored against a model that cannot address them", () => {
+  // A model reports per side of the carriageway; side='manual' is a polygon someone drew
+  // by hand. Counting one is a forced false negative when the human drew parking and a
+  // free true negative when they did not — it measures the schema mismatch, not the model.
+  const [s] = scoreRows([
+    row({ segment_id: "1", side: "left", has_parking: true, model_says_parking: true }),
+    row({ segment_id: "2", side: "manual", has_parking: true, model_says_parking: false }),
+    row({ segment_id: "3", side: "manual", has_parking: false, model_says_parking: false })
+  ]);
+  assert.equal(s.n, 1, "only the left/right space is scoreable");
+  assert.equal(s.tp, 1);
+  assert.equal(s.fn, 0, "the hand-drawn space must not become a false negative");
+  assert.equal(s.tn, 0, "nor a free true negative");
+  assert.equal(s.recall, 1);
+});
+
+test("a model that always says parking scores 0 on MCC however good its F1 looks", () => {
+  // The failure this whole column exists to catch: on a positive-heavy benchmark,
+  // answering "parking" every time yields a respectable F1 while knowing nothing.
+  const rows = [];
+  for (let i = 0; i < 38; i += 1) rows.push(row({ segment_id: `p${i}`, has_parking: true, model_says_parking: true }));
+  for (let i = 0; i < 20; i += 1) rows.push(row({ segment_id: `n${i}`, has_parking: false, model_says_parking: true }));
+  const [s] = scoreRows(rows);
+  assert.equal(s.recall, 1);
+  assert.ok(s.f1 > 0.75, `a constant yes still scores F1 ${s.f1} — which is the trap`);
+  assert.equal(s.mcc, null, "with no true or false negatives at all, MCC is undefined, not good");
+  assert.equal(s.saysParkingRate, 1);
+});
+
+test("MCC is near zero when a model matches the base rate but picks the wrong spaces", () => {
+  // 12 of 20 positives found, 6 of 10 negatives wrongly called parking: the model calls
+  // parking on 60% of spaces and the humans do too, but the agreement is chance.
+  const rows = [];
+  for (let i = 0; i < 12; i += 1) rows.push(row({ segment_id: `a${i}`, has_parking: true, model_says_parking: true }));
+  for (let i = 0; i < 8; i += 1) rows.push(row({ segment_id: `b${i}`, has_parking: true, model_says_parking: false }));
+  for (let i = 0; i < 6; i += 1) rows.push(row({ segment_id: `c${i}`, has_parking: false, model_says_parking: true }));
+  for (let i = 0; i < 4; i += 1) rows.push(row({ segment_id: `d${i}`, has_parking: false, model_says_parking: false }));
+  const [s] = scoreRows(rows);
+  assert.ok(Math.abs(s.mcc) < 1e-9, `expected chance agreement, got MCC ${s.mcc}`);
+  assert.ok(s.f1 > 0.6, "while F1 still looks like a working model");
+});

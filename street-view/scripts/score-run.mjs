@@ -80,6 +80,13 @@ WITH truth AS (
            regexp_replace(v.segment_id, '-s[0-9]+$', '') AS base_id
     FROM parking.verdict v
     WHERE ($3::boolean OR v.review_status <> 'suspect')
+      -- side='manual' is a hand-drawn polygon, not a side of the carriageway. A model
+      -- only ever emits left/right, so such a space is unmatchable BY CONSTRUCTION: it
+      -- is a forced false negative when the human drew parking there and a free true
+      -- negative when they did not. On this benchmark that is 3 FN and 4 TN handed to
+      -- every run alike — it does not change the ranking, but it makes every F1 look
+      -- worse and every TN count look better than the model earned.
+      AND v.side <> 'manual'
 ),
 scoped AS (
     SELECT t.* FROM truth t
@@ -101,11 +108,19 @@ LEFT JOIN parking.observation o
 WHERE ($1::text[] IS NULL OR r.run_id = ANY($1))
 `;
 
+// A model only ever reports on a side of the carriageway, so a hand-drawn ("manual")
+// space cannot be matched to anything it said. The SQL above already drops these; this
+// is the same rule enforced where the arithmetic happens, so a future caller that
+// assembles rows some other way cannot silently reintroduce unscoreable spaces.
+export function isScoreableSpace(row) {
+  return row.side !== "manual";
+}
+
 // Exported for tests: this is where a silent bug would produce a wrong model ranking
 // without anything looking broken.
 export function scoreRows(rows) {
   const byRun = new Map();
-  for (const r of rows) {
+  for (const r of rows.filter(isScoreableSpace)) {
     if (!byRun.has(r.run_id)) {
       byRun.set(r.run_id, {
         run_id: r.run_id, model: r.model, engine: r.engine, prompt_version: r.prompt_version,
@@ -141,6 +156,14 @@ export function scoreRows(rows) {
     s.f1 = s.precision != null && s.recall != null && s.precision + s.recall > 0
       ? (2 * s.precision * s.recall) / (s.precision + s.recall) : null;
     s.accuracy = s.n > 0 ? (s.tp + s.tn) / s.n : null;
+    // F1 ignores true negatives, so on a benchmark that is mostly positive a model which
+    // simply answers "parking" every time scores well while knowing nothing. MCC uses all
+    // four cells and is 0 for exactly that model, so it is the number to rank on. It is
+    // undefined (null) when a run never varies its answer — which is itself the finding.
+    const mccDen = Math.sqrt((s.tp + s.fp) * (s.tp + s.fn) * (s.tn + s.fp) * (s.tn + s.fn));
+    s.mcc = mccDen > 0 ? (s.tp * s.tn - s.fp * s.fn) / mccDen : null;
+    s.saysParkingRate = s.n > 0 ? (s.tp + s.fp) / s.n : null;
+    s.humanParkingRate = s.n > 0 ? (s.tp + s.fn) / s.n : null;
     s.mannerAccuracy = s.mannerScored > 0 ? s.mannerRight / s.mannerScored : null;
     s.meanDepthBiasM = s.mannerScored > 0 ? s.depthErrM / s.mannerScored : null;
     s.meanDepthErrM = s.mannerScored > 0 ? s.depthAbsErrM / s.mannerScored : null;
@@ -163,7 +186,8 @@ export async function scoreRuns({ databaseUrl, runs, area, includeSuspect, json 
       return [];
     }
 
-    const scores = scoreRows(rows).sort((a, b) => (b.f1 ?? -1) - (a.f1 ?? -1));
+    // Ranked by MCC, not F1 — see the note where mcc is computed.
+    const scores = scoreRows(rows).sort((a, b) => (b.mcc ?? -2) - (a.mcc ?? -2));
 
     if (json) {
       console.log(JSON.stringify(scores, null, 2));
@@ -175,20 +199,30 @@ export async function scoreRuns({ databaseUrl, runs, area, includeSuspect, json 
     console.log(`Model league table${area ? ` — ${area}` : ""}`);
     console.log(`Scored against ${truthN} human verdicts${includeSuspect ? " (including 'suspect')" : ""}. Only spaces a run actually covered count towards it.`);
     console.log("");
-    console.log("  model / run                              n    TP  FP  FN  TN   prec  rec   F1   manner  depth bias");
-    console.log("  ─────────────────────────────────────  ───  ───  ──  ──  ──   ────  ────  ────  ──────  ──────────");
+    console.log("  model / run                              n    TP  FP  FN  TN    MCC   prec  rec   F1   says  manner  depth bias");
+    console.log("  ─────────────────────────────────────  ───  ───  ──  ──  ──   ─────  ────  ────  ────  ────  ──────  ──────────");
     for (const s of scores) {
       const label = `${s.model || "?"} · ${s.run_id}`.slice(0, 37);
       console.log(
         `  ${label.padEnd(37)}  ${String(s.n).padStart(3)}  ` +
         `${String(s.tp).padStart(3)} ${String(s.fp).padStart(3)} ${String(s.fn).padStart(3)} ${String(s.tn).padStart(3)}   ` +
-        `${fmtPct(s.precision)}  ${fmtPct(s.recall)}  ${fmtPct(s.f1)}   ` +
+        `${s.mcc == null ? "  n/a" : (s.mcc >= 0 ? "+" : "") + s.mcc.toFixed(2)}  ` +
+        `${fmtPct(s.precision)}  ${fmtPct(s.recall)}  ${fmtPct(s.f1)}  ${fmtPct(s.saysParkingRate)}  ` +
         `${fmtPct(s.mannerAccuracy)} ${s.mannerScored ? `(${s.mannerRight}/${s.mannerScored})`.padStart(7) : "       "}  ` +
         `${s.meanDepthBiasM == null ? "    —" : `${s.meanDepthBiasM >= 0 ? "+" : ""}${s.meanDepthBiasM.toFixed(2)} m`}`
       );
     }
     console.log("");
     console.log("  TP/FP/FN/TN  presence of parking vs the human decision.");
+    console.log("  MCC          correlation with the human decision over all four cells.");
+    console.log("               0 = no better than guessing at the benchmark's base rate, 1 = perfect.");
+    console.log("               This is the ranking column: F1 rewards a model that always says");
+    console.log("               \"parking\" on a benchmark that is mostly parking, and MCC does not.");
+    console.log(`  says         share of spaces the model called parking. The humans called ${
+      scores[0]?.humanParkingRate == null ? "—" : `${Math.round(100 * scores[0].humanParkingRate)}%`
+    }.`);
+    console.log("               A model matching that share with MCC near 0 has learned the base");
+    console.log("               rate and nothing else.");
     console.log("  manner       of the spaces both agree have parking, how often the manner matches.");
     console.log("  depth bias   mean signed error in recorded strip depth from the manner call.");
     console.log("               Negative = the model records a shallower strip than reality, i.e.");
