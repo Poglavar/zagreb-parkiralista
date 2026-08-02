@@ -20,6 +20,8 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "pg": "^8.20.0"
+    "pg": "^8.20.0",
+    "proj4": "^2.21.0",
+    "sharp": "^0.35.3"
   }
 }

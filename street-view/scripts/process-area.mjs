@@ -77,6 +77,7 @@ function parseArgs(argv) {
     effort: null,          // reasoning effort for the CLI engines; null = engine default
     workers: 3,
     limit: null,
+    variant: "sv",         // prompt variant (lib/prompt-variants.mjs) — sv | sv-osm | sv-ortho | sv-osm-ortho
     maxCostUsd: null,      // metered engines only; stops the run cleanly at the ceiling
     dryRun: true,
     step: null,
@@ -98,6 +99,7 @@ function parseArgs(argv) {
     else if (argv[i] === "--effort") args.effort = argv[++i];
     else if (argv[i] === "--workers") args.workers = Number(argv[++i]);
     else if (argv[i] === "--limit") args.limit = Number(argv[++i]);
+    else if (argv[i] === "--variant") args.variant = argv[++i];
     else if (argv[i] === "--max-cost-usd") args.maxCostUsd = Number(argv[++i]);
     else if (argv[i] === "--write") args.dryRun = false;
     else if (argv[i] === "--step") args.step = argv[++i];
@@ -135,6 +137,13 @@ Options:
   --area NAME        Area name to process (mjesni odbor, gradska cetvrt, or l1/l2/l3 label)
   --benchmark        Process exactly the segments that carry a human verdict — the set
                      score-run.mjs can actually score. Use this to compare models.
+  --variant NAME     What the model is shown (claude-cli only for now):
+                       sv            Street View images only (default, baseline)
+                       sv-osm        + the street's OSM tags as text
+                       sv-ortho      + an annotated orthophoto crop of the segment
+                       sv-osm-ortho  + both
+                     The variant is part of the run id and the analyses filename, so
+                     variants of the same model never overwrite each other.
   --engine NAME      claude-cli (default), codex-cli, openrouter, openai-batch
   --model MODEL      Model override (default per engine, see below)
   --run-id ID        Name this run (default: <area>-<model>). Runs never overwrite each
@@ -195,10 +204,13 @@ function slugify(name) {
 // area and then Sonnet over the same area made the second run skip every segment as
 // "already done" and silently hand back a copy of the first model's answers. Comparing
 // models was impossible without noticing. One file per (engine, model) fixes it.
-function areaPaths(areaSlug, engine, model) {
+function areaPaths(areaSlug, engine, model, variant = "sv") {
   const base = resolveFrom(import.meta.url, `../out/${areaSlug}`);
   const engineTag = engine === "openai-batch" ? "openai" : engine;
   const modelTag = slugify(model || "default");
+  // The variant is part of the identity: two variants of the same model must not share an
+  // analyses file, or the second resume-skips the first and silently copies its answers.
+  const variantTag = variant && variant !== "sv" ? `-${slugify(variant)}` : "";
   return {
     base,
     selection: path.join(base, "selected-segments.geojson"),
@@ -208,7 +220,7 @@ function areaPaths(areaSlug, engine, model) {
     imageDir: path.join(base, "images"),
     batchJsonl: path.join(base, `openai-batch-${modelTag}.jsonl`),
     tracker: path.join(base, `openai-batch-status-${modelTag}.json`),
-    analyses: path.join(base, `${engineTag}-analyses-${modelTag}.json`)
+    analyses: path.join(base, `${engineTag}-analyses-${modelTag}${variantTag}.json`)
   };
 }
 
@@ -216,8 +228,9 @@ function areaPaths(areaSlug, engine, model) {
 // common case a one-liner; re-running the same model over the same area re-ingests into
 // the same run (ON CONFLICT updates it), which is what you want when resuming. Pass
 // --run-id explicitly to keep two runs of the same model side by side (e.g. a prompt A/B).
-function deriveRunId(areaSlug, engine, model) {
-  return `${areaSlug}-${slugify(model || engine)}`;
+function deriveRunId(areaSlug, engine, model, variant = "sv") {
+  const variantTag = variant && variant !== "sv" ? `-${slugify(variant)}` : "";
+  return `${areaSlug}-${slugify(model || engine)}${variantTag}`;
 }
 
 // Find segments matching area name across l1, l2, l3 fields
@@ -358,8 +371,8 @@ async function main() {
 
   const areaName = args.area;
   const areaSlug = slugify(areaName);
-  const paths = areaPaths(areaSlug, args.engine, args.model);
-  const runId = args.runId || deriveRunId(areaSlug, args.engine, args.model);
+  const paths = areaPaths(areaSlug, args.engine, args.model, args.variant);
+  const runId = args.runId || deriveRunId(areaSlug, args.engine, args.model, args.variant);
 
   log(`Processing area: ${areaName} (slug: ${areaSlug})`);
   log(`Engine: ${args.engine}, model: ${args.model || "(engine default)"}, run_id: ${runId}`);
@@ -468,7 +481,13 @@ async function main() {
         limit: args.limit,
         segmentId: null
       };
-      if (args.engine === "claude-cli") await analyzeWithClaudeCli(analyzeOpts);
+      if (args.engine === "claude-cli") {
+        await analyzeWithClaudeCli({
+          ...analyzeOpts,
+          variant: args.variant,
+          databaseUrl: await loadDatabaseUrlAsync()
+        });
+      }
       else if (args.engine === "openrouter") {
         await analyzeWithOpenRouter({ ...analyzeOpts, keyEnv: "OPENROUTER_API_KEY", maxCostUsd: args.maxCostUsd });
       } else {

@@ -11,8 +11,13 @@
 // Progressive + resumable: results are flushed to --out after every segment,
 // and segments already ok in an existing output file are skipped on restart.
 import { spawn } from "child_process";
+import { mkdir, writeFile } from "fs/promises";
+import path from "path";
 import { pathToFileURL } from "url";
-import { ASSESSMENT_SCHEMA, SYSTEM_PROMPT, buildUserPrompt } from "./lib/assessment-schema.mjs";
+import { ASSESSMENT_SCHEMA } from "./lib/assessment-schema.mjs";
+import { getVariant, systemPromptFor, userPromptFor } from "./lib/prompt-variants.mjs";
+import { loadOsmTags } from "./lib/osm-tags.mjs";
+import { renderSegmentOrtho, segmentBbox3765, ORTHO_SOURCES, ORTHO_RENDER_SIZE } from "./lib/ortho.mjs";
 import { fileExists, readJson, resolveFrom, writeJson } from "./lib/io.mjs";
 import { reportProgress } from "./lib/progress.mjs";
 
@@ -29,11 +34,17 @@ function parseArgs(argv) {
     effort: null,
     workers: 3,
     limit: null,
-    segmentId: null
+    segmentId: null,
+    variant: "sv",          // prompt variant; see lib/prompt-variants.mjs
+    databaseUrl: process.env.DATABASE_URL,
+    orthoSource: "cdof2022"
   };
 
   for (let i = 2; i < argv.length; i += 1) {
-    if (argv[i] === "--candidates") args.candidates = argv[++i];
+    if (argv[i] === "--variant") args.variant = argv[++i];
+    else if (argv[i] === "--database-url") args.databaseUrl = argv[++i];
+    else if (argv[i] === "--ortho-source") args.orthoSource = argv[++i];
+    else if (argv[i] === "--candidates") args.candidates = argv[++i];
     else if (argv[i] === "--images") args.images = argv[++i];
     else if (argv[i] === "--out") args.out = argv[++i];
     else if (argv[i] === "--model") args.model = argv[++i];
@@ -53,17 +64,23 @@ function parseArgs(argv) {
   return args;
 }
 
-function buildCliPrompt(segment, captureItems) {
+function buildCliPrompt(segment, captureItems, variant, extras = {}) {
   const imageLines = captureItems.map(({ capture, absolutePath }) =>
     `Image ${capture.capture_id} (Station ${(capture.station_index || 0) + 1}, ${capture.direction}): ${absolutePath}`
   );
+  // The orthophoto is listed last and labelled, so the model reads the street-level
+  // evidence first and the aerial as supporting geometry — the order the prompt asks it
+  // to weigh them in.
+  if (extras.orthoPath) {
+    imageLines.push(`Orthophoto (top-down aerial) of this segment: ${extras.orthoPath}`);
+  }
   return [
-    SYSTEM_PROMPT,
+    systemPromptFor(variant),
     "",
     "First use the Read tool to view EVERY image file listed below, in order:",
     ...imageLines,
     "",
-    buildUserPrompt(segment)
+    userPromptFor(variant, segment, extras)
   ].join("\n");
 }
 
@@ -116,7 +133,11 @@ function runClaudeCli(prompt, model, maxTurns, effort) {
   });
 }
 
-export async function analyzeWithClaudeCli({ candidates, images, out, model, effort, workers, limit, segmentId }) {
+export async function analyzeWithClaudeCli({
+  candidates, images, out, model, effort, workers, limit, segmentId,
+  variant: variantName = "sv", databaseUrl, orthoSource = "cdof2022"
+}) {
+  const variant = getVariant(variantName);
   const candidateData = await readJson(candidates);
   const imageManifest = await readJson(images);
   const imageByCaptureId = new Map(
@@ -159,6 +180,56 @@ export async function analyzeWithClaudeCli({ candidates, images, out, model, eff
 
   const queue = limit ? segmentsWithImages.slice(0, limit) : segmentsWithImages;
   log(`claude-cli analysis: ${queue.length} segments to process, model=${model}, effort=${effort || "default"}, workers=${workers}`);
+  log(`Prompt variant: ${variant.name} — ${variant.label} (prompt_version ${variant.promptVersion})`);
+
+  // Extra inputs, loaded up front so a per-segment failure to fetch them is visible as a
+  // count rather than as a silently weaker prompt on some segments.
+  let osmBySegment = new Map();
+  if (variant.needsOsm) {
+    if (!databaseUrl) throw new Error(`variant "${variant.name}" needs OSM tags — pass --database-url or set DATABASE_URL`);
+    osmBySegment = await loadOsmTags(databaseUrl, queue.map((q) => q.segment.segment_id));
+    log(`OSM tags loaded for ${osmBySegment.size}/${queue.length} segments`);
+  }
+
+  const orthoDir = path.join(path.dirname(out), "ortho");
+  if (variant.needsOrtho) await mkdir(orthoDir, { recursive: true });
+  let orthoOk = 0;
+  let orthoFail = 0;
+
+  // One annotated aerial crop per segment, cached on disk so re-running a variant (or
+  // running two variants that both want it) does not re-hit the WMS.
+  async function orthoFor(segment) {
+    if (!variant.needsOrtho) return null;
+    const file = path.join(orthoDir, `${segment.segment_id}.jpg`);
+    if (await fileExists(file)) {
+      orthoOk += 1;
+      // Recompute the geometry metadata rather than storing zeros: the prompt quotes the
+      // scale to the model, and "0.00 m per pixel" would be a confident falsehood about
+      // the one thing the aerial is there to supply. segmentBbox3765 is pure, so this is
+      // free and exactly matches what the cached image was rendered from.
+      const bbox = segmentBbox3765(segment.geometry?.coordinates || []);
+      return {
+        path: file,
+        label: ORTHO_SOURCES[orthoSource]?.label || "orthophoto",
+        extentM: bbox.extentM,
+        metresPerPixel: bbox.extentM / ORTHO_RENDER_SIZE,
+        cached: true
+      };
+    }
+    try {
+      const rendered = await renderSegmentOrtho(segment, { source: orthoSource });
+      await writeFile(file, rendered.buffer);
+      orthoOk += 1;
+      return { path: file, label: rendered.label, metresPerPixel: rendered.metresPerPixel, extentM: rendered.extentM };
+    } catch (err) {
+      // Not fatal: the prompt says so explicitly and the model falls back to street level.
+      // Counted, though, because a variant that quietly lost its extra input on half the
+      // segments is not the variant being measured.
+      orthoFail += 1;
+      log(`  ortho FAIL for segment ${segment.segment_id}: ${err.message}`);
+      return null;
+    }
+  }
 
   let processed = 0;
   let totalNominal = results.reduce((s, r) => s + (r.nominal_cost_usd || 0), 0);
@@ -171,6 +242,16 @@ export async function analyzeWithClaudeCli({ candidates, images, out, model, eff
       effort,
       provider: "anthropic",
       engine: "claude-cli",
+      // Recorded so a run's numbers can always be traced to what the model was shown.
+      // Comparing variants is the whole point, and a result file that does not say which
+      // one produced it is not comparable to anything.
+      variant: variant.name,
+      prompt_version: variant.promptVersion,
+      extra_inputs: {
+        osm_tags_for_segments: variant.needsOsm ? osmBySegment.size : 0,
+        ortho_ok: orthoOk,
+        ortho_failed: orthoFail
+      },
       billing: { total_nominal_cost_usd: Number(totalNominal.toFixed(6)), note: "billed to Claude subscription, not API" },
       results
     });
@@ -181,7 +262,12 @@ export async function analyzeWithClaudeCli({ candidates, images, out, model, eff
     while (nextIndex < queue.length) {
       const item = queue[nextIndex++];
       const segId = item.segment.segment_id;
-      const prompt = buildCliPrompt(item.segment, item.availableCaptures);
+      const ortho = await orthoFor(item.segment);
+      const prompt = buildCliPrompt(item.segment, item.availableCaptures, variant, {
+        osmTags: osmBySegment.get(String(segId).replace(/-s\d+$/, "")),
+        ortho,
+        orthoPath: ortho?.path
+      });
       const maxTurns = 10 + item.availableCaptures.length * 2;
       const t0 = Date.now();
       try {

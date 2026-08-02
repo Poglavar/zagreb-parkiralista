@@ -25,7 +25,7 @@ function parseArgs(argv) {
     model: null,
     runId: null,
     area: null,
-    promptVersion: "v2",
+    promptVersion: null,   // default: whatever the analyses file says it ran
     notes: null,
     segmentSuffix: "",
     dryRun: true
@@ -316,7 +316,11 @@ async function main() {
           nominal_cost_usd = EXCLUDED.nominal_cost_usd, updated_at = now()
       `, [
         args.runId, args.area, args.provider, resolvedModel,
-        analysisData.engine || null, args.promptVersion,
+        analysisData.engine || null,
+        // The analyses file records which prompt variant produced it. Preferring that over
+        // a hardcoded default is what keeps a variant comparison honest: a run ingested as
+        // "v2" when it actually ran sv-ortho is indistinguishable from the baseline.
+        args.promptVersion || analysisData.prompt_version || "v2",
         analysisData.billing?.total_nominal_cost_usd ?? null,
         args.notes
       ]);
