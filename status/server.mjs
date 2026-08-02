@@ -13,11 +13,23 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { promisify } from "util";
 import pg from "pg";
+import { JobRunner, ENGINE_MODELS, STEPS, EFFORTS } from "./jobs.mjs";
 
 const execFileAsync = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
 const PORT = Number(process.env.STATUS_PORT || 8017);
+
+// Origins allowed to SUBMIT jobs. Reading status is open (see the CORS header on
+// /status.json), but submitting spawns a process, and "*" on that would let any page you
+// happen to have open in another tab start LLM runs on this machine. Localhost only, and
+// the Origin header is checked rather than assumed — a browser always sends it on
+// cross-origin requests, so a missing one means the call did not come from a page.
+const ALLOWED_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+function isAllowedOrigin(origin) {
+  return typeof origin === "string" && ALLOWED_ORIGIN.test(origin);
+}
 
 // Heartbeats older than this are shown as "stalo" (stalled) instead of running.
 const HEARTBEAT_FRESH_MS = 90_000;
@@ -245,8 +257,108 @@ async function buildStatus() {
   };
 }
 
+const runner = new JobRunner({
+  cwd: path.join(ROOT, "street-view"),
+  logDir: path.join(ROOT, "data", "status", "jobs"),
+  stateFile: path.join(ROOT, "data", "status", "jobs.json")
+});
+
+function sendJson(res, status, body, origin) {
+  const headers = { "Content-Type": "application/json", "Cache-Control": "no-store" };
+  if (isAllowedOrigin(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
+    headers["Access-Control-Allow-Headers"] = "Content-Type";
+  }
+  res.writeHead(status, headers);
+  res.end(JSON.stringify(body));
+}
+
+async function readBody(req, limit = 64_000) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw new Error("body too large");
+    chunks.push(chunk);
+  }
+  if (size === 0) return {};
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+// The areas a job may name. Checked against the database rather than trusted from the
+// client, so a typo fails at submit with a useful message instead of after the process has
+// spawned and burned a minute discovering it selected nothing.
+async function knownAreas() {
+  const p = await getPool();
+  if (!p) return null;
+  const { rows } = await p.query(`
+    SELECT DISTINCT mo_naziv AS name FROM parking.road_segment_mo WHERE mo_naziv IS NOT NULL
+    UNION SELECT DISTINCT gc_naziv FROM parking.road_segment_mo WHERE gc_naziv IS NOT NULL
+  `);
+  return new Set(rows.map((r) => r.name));
+}
+
 const server = http.createServer(async (req, res) => {
+  const origin = req.headers.origin;
   try {
+    // --- job manager -----------------------------------------------------------------
+    if (req.url.startsWith("/jobs")) {
+      if (req.method === "OPTIONS") {
+        return sendJson(res, isAllowedOrigin(origin) ? 204 : 403, {}, origin);
+      }
+
+      if (req.method === "GET" && req.url === "/jobs") {
+        return sendJson(res, 200, {
+          jobs: runner.list(),
+          options: { steps: STEPS, engines: ENGINE_MODELS, efforts: EFFORTS }
+        }, origin);
+      }
+
+      const logMatch = /^\/jobs\/([\w-]+)\/log/.exec(req.url);
+      if (req.method === "GET" && logMatch) {
+        const text = await runner.tail(logMatch[1]);
+        if (text === null) return sendJson(res, 404, { error: "nepoznat posao" }, origin);
+        return sendJson(res, 200, { id: logMatch[1], log: text }, origin);
+      }
+
+      // Everything below mutates. Same-origin-ish check first, always.
+      if (req.method === "POST" && !isAllowedOrigin(origin)) {
+        return sendJson(res, 403, {
+          error: "submitting jobs is allowed only from a localhost page"
+        }, origin);
+      }
+
+      const stopMatch = /^\/jobs\/([\w-]+)\/stop$/.exec(req.url);
+      if (req.method === "POST" && stopMatch) {
+        const result = await runner.stop(stopMatch[1]);
+        return sendJson(res, result.ok ? 200 : 400, result, origin);
+      }
+
+      if (req.method === "POST" && req.url === "/jobs") {
+        let spec;
+        try {
+          spec = await readBody(req);
+        } catch (err) {
+          return sendJson(res, 400, { ok: false, errors: [`neispravan zahtjev: ${err.message}`] }, origin);
+        }
+        if (!spec.benchmark && typeof spec.area === "string") {
+          const areas = await knownAreas();
+          if (areas && !areas.has(spec.area.trim())) {
+            return sendJson(res, 400, {
+              ok: false,
+              errors: [`nepoznato područje "${spec.area}" — mora biti mjesni odbor ili gradska četvrt`]
+            }, origin);
+          }
+        }
+        const result = await runner.submit(spec, new Date().toISOString());
+        if (result.ok) log(`job ${result.job.id} started: node ${result.job.argv.join(" ")}`);
+        return sendJson(res, result.ok ? 200 : 400, result, origin);
+      }
+
+      return sendJson(res, 404, { error: "not found" }, origin);
+    }
+
     if (req.url.startsWith("/status.json")) {
       const body = JSON.stringify(await buildStatus());
       res.writeHead(200, {
@@ -277,6 +389,11 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+await runner.init();
+
 server.listen(PORT, "127.0.0.1", () => {
   log(`Status dashboard: http://localhost:${PORT}/ (localhost only)`);
+  log(`Job manager active — submitting spawns pipeline runs; POST is restricted to localhost origins.`);
+  const orphaned = runner.list().filter((j) => j.status === "running" && j.alive);
+  if (orphaned.length) log(`Reattached to ${orphaned.length} job(s) still running from a previous server.`);
 });

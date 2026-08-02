@@ -56,13 +56,29 @@
 
     <section class="map-wrap">
       <div id="map"></div>
+      <!-- Dvije legende: ljestvica za područja, popis stanja za ulice. Kad su na karti
+           ulice, ljestvica udjela više ne opisuje ništa što se vidi, pa se zamijeni. -->
       <div class="legend" id="legend">
-        <div class="legend-title">Udio analiziranih segmenata</div>
-        <div class="legend-scale">
-          <span class="sw sw-0"></span><span class="sw sw-1"></span><span class="sw sw-2"></span>
-          <span class="sw sw-3"></span><span class="sw sw-4"></span>
+        <div id="legend-areas">
+          <div class="legend-title">Udio analiziranih segmenata</div>
+          <div class="legend-scale">
+            <span class="sw sw-0"></span><span class="sw sw-1"></span><span class="sw sw-2"></span>
+            <span class="sw sw-3"></span><span class="sw sw-4"></span>
+          </div>
+          <div class="legend-ends"><span>0 %</span><span>100 %</span></div>
         </div>
-        <div class="legend-ends"><span>0 %</span><span>100 %</span></div>
+        <div id="legend-segments" hidden>
+          <div class="legend-title">Stanje ulice</div>
+          <ul class="legend-keys">
+            <li><span class="key" style="background:#3a4150"></span>nije obrađeno</li>
+            <li><span class="key" style="background:#d29922"></span>snimke spremne</li>
+            <li><span class="key" style="background:#4c8dff"></span>analizirano</li>
+            <li><span class="key" style="background:#8b98ad"></span>analizirano — bez parkinga</li>
+            <li><span class="key" style="background:#a371f7"></span>dva ili više modela</li>
+            <li><span class="key" style="background:#3fb950"></span>ljudski provjereno</li>
+            <li><span class="key" style="background:#f85149"></span>greška</li>
+          </ul>
+        </div>
         <div class="legend-note" id="legend-note">Klikni područje za detalje po ulicama.</div>
       </div>
     </section>
@@ -73,6 +89,50 @@
         <button type="button" id="detail-close" class="ghost-btn" aria-label="Zatvori detalje">✕</button>
       </div>
       <div id="detail-stats" class="detail-stats"></div>
+
+      <!-- Pokretanje posla za područje koje je trenutno otvoreno. Vidljivo samo kad je
+           lokalna nadzorna ploča dostupna, jer samo ona može pokrenuti proces. -->
+      <div class="submit" id="submit-panel" hidden>
+        <div class="submit-row">
+          <button type="button" class="run-btn" id="run-images">
+            Skini snimke
+            <span class="run-hint" id="run-images-hint"></span>
+          </button>
+          <button type="button" class="run-btn primary" id="run-analyze">
+            Analiziraj LLM-om
+            <span class="run-hint" id="run-analyze-hint"></span>
+          </button>
+        </div>
+        <div class="submit-row submit-opts">
+          <label>Motor
+            <select id="opt-engine"></select>
+          </label>
+          <label>Model
+            <select id="opt-model"></select>
+          </label>
+          <label class="opt-custom" id="opt-model-custom-wrap" hidden>
+            <input type="text" id="opt-model-custom" placeholder="vendor/model" />
+          </label>
+          <label>Effort
+            <select id="opt-effort"></select>
+          </label>
+          <label>Radnika
+            <input type="number" id="opt-workers" min="1" max="8" value="2" />
+          </label>
+          <label>Limit
+            <input type="number" id="opt-limit" min="1" max="5000" placeholder="svi" />
+          </label>
+          <label class="opt-cost" id="opt-cost-wrap" hidden>Max $
+            <input type="number" id="opt-max-cost" min="0.5" max="100" step="0.5" value="2" />
+          </label>
+          <label class="opt-write">
+            <input type="checkbox" id="opt-write" checked />
+            Piši u bazu
+          </label>
+        </div>
+        <div class="submit-msg" id="submit-msg"></div>
+      </div>
+
       <div class="table-wrap">
         <table id="segment-table">
           <thead>
@@ -91,6 +151,26 @@
         Segment koji je analiziran i na kojem model <em>nije</em> našao parkiranje je
         <strong>obrađen</strong>, ne neobrađen — to je nalaz, a ne rupa u podacima.
       </p>
+    </section>
+
+    <!-- Poslovi koje smo pokrenuli odavde. Kao i traka "U tijeku sada", postoji samo dok
+         lokalna nadzorna ploča odgovara. -->
+    <section class="jobs" id="jobs-section" hidden>
+      <h2>Poslovi</h2>
+      <div class="table-wrap">
+        <table id="jobs-table">
+          <thead>
+            <tr>
+              <th>Posao</th>
+              <th>Stanje</th>
+              <th>Pokrenut</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="jobs-tbody"></tbody>
+        </table>
+      </div>
+      <pre class="job-log" id="job-log" hidden></pre>
     </section>
 
     <section class="queue">

@@ -248,6 +248,26 @@ async function selectArea(area) {
     .map(([k, v]) => `<span class="chip">${escapeHtml(k)} <strong>${fmt(v)}</strong></span>`)
     .join("");
 
+  // Say what each button would actually do here before it is pressed. "Skini snimke" on an
+  // area that already has them is a no-op, and analysing an area with no imagery cannot
+  // work at all — both are worth knowing without reading the log afterwards.
+  const missingImages = feats.filter((f) => Number(f.properties.image_count) === 0).length;
+  const unanalysed = feats.filter((f) => Number(f.properties.run_count) === 0).length;
+  const imgHint = document.getElementById("run-images-hint");
+  const anaHint = document.getElementById("run-analyze-hint");
+  if (imgHint) {
+    imgHint.textContent = missingImages === 0
+      ? "sve snimke već postoje"
+      : `${missingImages} segm. bez snimaka`;
+  }
+  if (anaHint) {
+    anaHint.textContent = feats.length - missingImages === 0
+      ? "nema snimaka za analizu"
+      : `${unanalysed} segm. neanalizirano`;
+  }
+  const runAnalyze = document.getElementById("run-analyze");
+  if (runAnalyze) runAnalyze.disabled = (feats.length - missingImages) === 0;
+
   els.segmentTbody.innerHTML = "";
   for (const f of feats) {
     const p = f.properties;
@@ -279,17 +299,222 @@ async function selectArea(area) {
   }).addTo(map);
 
   fitTo(state.segmentLayer);
+  setLegendMode("segments");
   els.legendNote.textContent = `Ulice u području ${area} obojene po stanju obrade.`;
   els.detail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+// The legend must describe the colours actually on the map. The area choropleth is a
+// percentage scale; the street layer is a set of discrete states. Showing the scale over
+// street colours does not just look wrong, it asserts something untrue about them.
+function setLegendMode(mode) {
+  const areas = document.getElementById("legend-areas");
+  const segments = document.getElementById("legend-segments");
+  if (!areas || !segments) return;
+  areas.hidden = mode === "segments";
+  segments.hidden = mode !== "segments";
 }
 
 function closeDetail() {
   els.detail.hidden = true;
   state.selected = null;
   if (state.segmentLayer) { map.removeLayer(state.segmentLayer); state.segmentLayer = null; }
+  setLegendMode("areas");
   els.legendNote.textContent = "Klikni područje za detalje po ulicama.";
   renderAreaTable();
   renderAreaLayer();
+}
+
+// --- pokretanje poslova -------------------------------------------------------------
+
+// Job submission lives on the localhost dashboard, not on the shared API: spawning a
+// process is something only the machine holding the images and the CLI logins can do, and
+// deliberately not something a deployed page can ask for. So the whole panel appears only
+// when that dashboard answers, exactly like the "U tijeku sada" strip.
+let jobOptions = null;
+let openJobLog = null;
+
+function engineNeedsCost(engine) {
+  return engine === "openrouter";   // the only metered engine here
+}
+
+function populateJobOptions() {
+  if (!jobOptions) return;
+  const engineSel = document.getElementById("opt-engine");
+  const effortSel = document.getElementById("opt-effort");
+  if (engineSel.options.length === 0) {
+    for (const name of Object.keys(jobOptions.engines)) {
+      engineSel.appendChild(el(`<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`));
+    }
+    effortSel.appendChild(el(`<option value="">(zadano)</option>`));
+    for (const e of jobOptions.efforts) {
+      effortSel.appendChild(el(`<option value="${escapeHtml(e)}">${escapeHtml(e)}</option>`));
+    }
+    engineSel.value = "claude-cli";
+    engineSel.addEventListener("change", syncModelOptions);
+    syncModelOptions();
+  }
+}
+
+function syncModelOptions() {
+  const engine = document.getElementById("opt-engine").value;
+  const modelSel = document.getElementById("opt-model");
+  modelSel.innerHTML = "";
+  for (const m of jobOptions.engines[engine] || []) {
+    modelSel.appendChild(el(`<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`));
+  }
+  // OpenRouter's catalogue moves too fast to pin, so it also accepts a typed model name.
+  const isOpenRouter = engine === "openrouter";
+  modelSel.appendChild(el(`<option value="__custom__">${isOpenRouter ? "drugi…" : "(zadano za motor)"}</option>`));
+  document.getElementById("opt-cost-wrap").hidden = !engineNeedsCost(engine);
+  modelSel.onchange = () => {
+    document.getElementById("opt-model-custom-wrap").hidden =
+      !(modelSel.value === "__custom__" && isOpenRouter);
+  };
+  modelSel.onchange();
+}
+
+function currentJobSpec(step) {
+  const engine = document.getElementById("opt-engine").value;
+  const modelSel = document.getElementById("opt-model").value;
+  const custom = document.getElementById("opt-model-custom").value.trim();
+  const model = modelSel === "__custom__" ? (custom || null) : modelSel;
+  const effort = document.getElementById("opt-effort").value || null;
+  const workers = Number(document.getElementById("opt-workers").value) || null;
+  const limitRaw = document.getElementById("opt-limit").value;
+  const limit = limitRaw === "" ? null : Number(limitRaw);
+  const maxCost = engineNeedsCost(engine) ? Number(document.getElementById("opt-max-cost").value) : null;
+
+  const spec = {
+    area: state.selected,
+    step,
+    engine,
+    write: document.getElementById("opt-write").checked
+  };
+  // Only send what was actually chosen — the validator rejects nulls it does not expect,
+  // and an empty string would become a real (invalid) argv entry.
+  if (model) spec.model = model;
+  if (effort) spec.effort = effort;
+  if (workers) spec.workers = workers;
+  if (limit) spec.limit = limit;
+  if (maxCost) spec.maxCostUsd = maxCost;
+  // The image fetch has no model or engine dimension; sending them would only produce a
+  // second analyses filename for a step that writes none.
+  if (step === "images") {
+    delete spec.model;
+    delete spec.effort;
+    delete spec.maxCostUsd;
+  }
+  return spec;
+}
+
+async function submitJob(step) {
+  const msg = document.getElementById("submit-msg");
+  if (!state.selected) {
+    msg.textContent = "Prvo odaberi područje.";
+    msg.className = "submit-msg err";
+    return;
+  }
+  msg.textContent = "Šaljem…";
+  msg.className = "submit-msg";
+  try {
+    const resp = await fetch(`${LIVE_BASE}/jobs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(currentJobSpec(step))
+    });
+    const body = await resp.json();
+    if (!resp.ok || !body.ok) {
+      msg.textContent = (body.errors || [body.error || `HTTP ${resp.status}`]).join(" · ");
+      msg.className = "submit-msg err";
+      return;
+    }
+    msg.textContent = `Pokrenuto: ${body.job.label} (${body.job.id})`;
+    msg.className = "submit-msg ok";
+    pollJobs();
+    pollLive();
+  } catch (err) {
+    msg.textContent = `Ne mogu poslati: ${err.message}`;
+    msg.className = "submit-msg err";
+  }
+}
+
+const JOB_STATUS_LABELS = {
+  running: "radi", done: "gotovo", failed: "greška",
+  stopped: "prekinut", stopping: "zaustavljam…", unknown: "nepoznato"
+};
+
+async function pollJobs() {
+  const section = document.getElementById("jobs-section");
+  let data;
+  try {
+    const resp = await fetch(`${LIVE_BASE}/jobs`, { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    data = await resp.json();
+  } catch {
+    section.hidden = true;
+    document.getElementById("submit-panel").hidden = true;
+    return;
+  }
+
+  jobOptions = data.options;
+  populateJobOptions();
+  document.getElementById("submit-panel").hidden = false;
+
+  const tbody = document.getElementById("jobs-tbody");
+  if (!data.jobs.length) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  tbody.innerHTML = "";
+  for (const j of data.jobs.slice(0, 25)) {
+    // A job recorded as running whose pid is gone is not running — say so rather than
+    // showing a spinner forever.
+    const dead = j.status === "running" && !j.alive;
+    const label = dead ? "nestao" : (JOB_STATUS_LABELS[j.status] || j.status);
+    const tr = el(`
+      <tr>
+        <td>${escapeHtml(j.label)}<div class="job-id muted">${escapeHtml(j.id)}</div></td>
+        <td><span class="pill ${dead ? "failed" : j.status === "done" ? "human" : j.status === "running" ? "done" : j.status === "failed" ? "failed" : "none"}">${escapeHtml(label)}</span>${
+          j.exit_code != null && j.exit_code !== 0 ? ` <span class="muted">rc=${j.exit_code}</span>` : ""}</td>
+        <td class="muted">${escapeHtml((j.started_at || "").slice(11, 19))}</td>
+        <td class="job-actions">
+          <button type="button" class="ghost-btn" data-log="${escapeHtml(j.id)}">Log</button>
+          ${j.status === "running" && j.alive ? `<button type="button" class="ghost-btn danger" data-stop="${escapeHtml(j.id)}">Stop</button>` : ""}
+        </td>
+      </tr>`);
+    tbody.appendChild(tr);
+  }
+
+  tbody.querySelectorAll("[data-log]").forEach((b) => {
+    b.addEventListener("click", () => showJobLog(b.dataset.log));
+  });
+  tbody.querySelectorAll("[data-stop]").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      await fetch(`${LIVE_BASE}/jobs/${encodeURIComponent(b.dataset.stop)}/stop`, { method: "POST" })
+        .catch(() => {});
+      pollJobs();
+    });
+  });
+
+  if (openJobLog) showJobLog(openJobLog, true);
+}
+
+async function showJobLog(id, quiet = false) {
+  const pre = document.getElementById("job-log");
+  openJobLog = id;
+  try {
+    const resp = await fetch(`${LIVE_BASE}/jobs/${encodeURIComponent(id)}/log`, { cache: "no-store" });
+    const body = await resp.json();
+    pre.textContent = body.log || "(prazan log)";
+    pre.hidden = false;
+    if (!quiet) pre.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    pre.scrollTop = pre.scrollHeight;
+  } catch {
+    if (!quiet) pre.textContent = "Ne mogu dohvatiti log.";
+  }
 }
 
 // --- pokretanje ---------------------------------------------------------------
@@ -447,6 +672,8 @@ function init() {
     renderAreaLayer();
   });
   document.getElementById("detail-close").addEventListener("click", closeDetail);
+  document.getElementById("run-images").addEventListener("click", () => submitJob("images"));
+  document.getElementById("run-analyze").addEventListener("click", () => submitJob("analyze"));
 
   reload();
 
@@ -454,6 +681,8 @@ function init() {
   // numbers change when a run finishes, the live strip changes every few seconds.
   // pollLive reschedules itself, so no interval here.
   pollLive();
+  pollJobs();
+  setInterval(pollJobs, 5000);
 }
 
 document.addEventListener("DOMContentLoaded", init);
