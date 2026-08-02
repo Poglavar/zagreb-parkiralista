@@ -162,8 +162,10 @@ function reachesIngest(spec) {
 // precisely the doubt this label exists to remove.
 export function describeJob(spec) {
   const target = spec.benchmark ? "benchmark" : spec.area;
+  // "sve do X" alone reads as "everything before X", i.e. stopping short of it. The step
+  // named is included, and for the image button that IS the point of pressing it.
   const what = spec.through
-    ? `sve do: ${STEP_LABELS[spec.through] || spec.through}`
+    ? `sve uključivo do: ${STEP_LABELS[spec.through] || spec.through}`
     : (STEP_LABELS[spec.step || "full"] || spec.step);
   const parts = [target, what];
   if (usesLlm(spec)) parts.push(spec.model ? `${spec.engine}/${spec.model}` : spec.engine);

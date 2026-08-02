@@ -27,6 +27,7 @@ const state = {
   hideDone: false,
   filter: "",
   selected: null,
+  selectedFeatures: null,   // segments of the open area, for recomputing the run hints
   layer: null,
   segmentLayer: null
 };
@@ -255,42 +256,10 @@ async function selectArea(area) {
     .map(([k, v]) => `<span class="chip">${escapeHtml(k)} <strong>${fmt(v)}</strong></span>`)
     .join("");
 
-  // Say what each button would actually do here before it is pressed — and only count work
-  // the button can actually do. A segment Google has no panorama for has no images and
-  // never will, so counting it as "bez snimaka" promises a fetch that finishes instantly
-  // having changed nothing, which is exactly what it did.
-  const fetchable = feats.filter((f) =>
-    Number(f.properties.covered_count) > Number(f.properties.image_count)).length;
-  const noStreetView = feats.filter((f) =>
-    f.properties.imagery_checked && Number(f.properties.covered_count) === 0).length;
-  const unchecked = feats.filter((f) => !f.properties.imagery_checked).length;
-  const withImages = feats.filter((f) => Number(f.properties.image_count) > 0).length;
-  const unanalysed = feats.filter((f) =>
-    Number(f.properties.run_count) === 0 && Number(f.properties.image_count) > 0).length;
-
-  const imgHint = document.getElementById("run-images-hint");
-  const anaHint = document.getElementById("run-analyze-hint");
-  if (imgHint) {
-    const parts = [];
-    if (fetchable) parts.push(`${fetchable} za preuzimanje`);
-    if (unchecked) parts.push(`${unchecked} neprovjereno`);
-    if (!parts.length) {
-      parts.push(noStreetView
-        ? `sve što postoji je skinuto · ${noStreetView} bez Street Viewa`
-        : "sve snimke već postoje");
-    }
-    imgHint.textContent = parts.join(" · ");
-  }
-  if (anaHint) {
-    anaHint.textContent = withImages === 0
-      ? "nema snimaka za analizu"
-      : `${unanalysed} od ${withImages} neanalizirano`;
-  }
-  const runAnalyze = document.getElementById("run-analyze");
-  if (runAnalyze) runAnalyze.disabled = withImages === 0;
-  // Nothing left to fetch and nothing left to check: the button can only be a no-op.
-  const runImages = document.getElementById("run-images");
-  if (runImages) runImages.disabled = fetchable === 0 && unchecked === 0;
+  // Keep the features so the hints can be recomputed when the model choice changes — what
+  // an analysis run would actually do depends on which model you picked.
+  state.selectedFeatures = feats;
+  updateRunHints();
 
   els.segmentTbody.innerHTML = "";
   for (const f of feats) {
@@ -362,6 +331,107 @@ function engineNeedsCost(engine) {
   return engine === "openrouter";   // the only metered engine here
 }
 
+// Must match slugify()/deriveRunId() in street-view/scripts/process-area.mjs, because the
+// point is to predict the run_id that a submitted job will actually create. If they drift,
+// the page will claim work is new when it would be resumed, or the reverse.
+function slugify(name) {
+  return String(name)
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function deriveRunId(area, engine, model) {
+  return `${slugify(area)}-${slugify(model || engine)}`;
+}
+
+// Croatian numeral agreement: 1 model obradio, 2-4 modela obradila, 5+ modela obradilo,
+// with 11-14 taking the 5+ form. Getting this wrong reads as machine-translated, and this
+// string appears right next to a button that spends money.
+function earlierModelsPhrase(n) {
+  const last2 = n % 100;
+  const last = n % 10;
+  if (last === 1 && last2 !== 11) return `${n} raniji model već obradio područje`;
+  if (last >= 2 && last <= 4 && !(last2 >= 12 && last2 <= 14)) return `${n} ranija modela već obradila područje`;
+  return `${n} ranijih modela već obradilo područje`;
+}
+
+// What the two buttons would actually do, given the area on screen AND the model currently
+// selected. Recomputed on every relevant change rather than only when an area is opened:
+// switching from Opus to Kimi changes the answer completely, and a stale hint here is
+// worse than none — it is the number someone decides to spend model quota on.
+function updateRunHints() {
+  const feats = state.selectedFeatures;
+  const imgHint = document.getElementById("run-images-hint");
+  const anaHint = document.getElementById("run-analyze-hint");
+  const anaSub = document.getElementById("run-analyze-sub");
+  const runAnalyze = document.getElementById("run-analyze");
+  const runImages = document.getElementById("run-images");
+  if (!feats || !imgHint || !anaHint) return;
+
+  // --- imagery: only count work the fetch can actually do ---
+  const fetchable = feats.filter((f) =>
+    Number(f.properties.covered_count) > Number(f.properties.image_count)).length;
+  const noStreetView = feats.filter((f) =>
+    f.properties.imagery_checked && Number(f.properties.covered_count) === 0).length;
+  const unchecked = feats.filter((f) => !f.properties.imagery_checked).length;
+  const withImages = feats.filter((f) => Number(f.properties.image_count) > 0);
+
+  const imgParts = [];
+  if (fetchable) imgParts.push(`${fetchable} za preuzimanje`);
+  if (unchecked) imgParts.push(`${unchecked} neprovjereno`);
+  if (!imgParts.length) {
+    imgParts.push(noStreetView
+      ? `sve što postoji je skinuto · ${noStreetView} bez Street Viewa`
+      : "sve snimke već postoje");
+  }
+  imgHint.textContent = imgParts.join(" · ");
+  if (runImages) runImages.disabled = fetchable === 0 && unchecked === 0;
+
+  // --- analysis: is this a first pass for the chosen model, or another one? ---
+  if (withImages.length === 0) {
+    anaHint.textContent = "nema snimaka za analizu";
+    if (anaSub) anaSub.textContent = "troši kvotu modela";
+    if (runAnalyze) runAnalyze.disabled = true;
+    return;
+  }
+  if (runAnalyze) runAnalyze.disabled = false;
+
+  const engineSel = document.getElementById("opt-engine");
+  const modelSel = document.getElementById("opt-model");
+  const customEl = document.getElementById("opt-model-custom");
+  if (!engineSel || !modelSel) return;
+  const engine = engineSel.value;
+  const chosen = modelSel.value === "__custom__" ? (customEl?.value.trim() || null) : modelSel.value;
+  const runId = deriveRunId(state.selected, engine, chosen);
+
+  // A segment is "done for this model" only if THIS model's run already covers it. Another
+  // model having analysed it is not the same thing, and conflating them is what made
+  // "0 od 60" read as "nothing has ever been analysed".
+  const doneForModel = withImages.filter((f) => (f.properties.runs || []).includes(runId)).length;
+  const todoForModel = withImages.length - doneForModel;
+
+  // Which models have been over this area at all — the context that was missing.
+  const allRuns = new Set();
+  for (const f of withImages) for (const r of f.properties.runs || []) allRuns.add(r);
+
+  if (todoForModel === 0) {
+    anaHint.textContent = `svih ${withImages.length} već analizirano ovim modelom — ponovno pokretanje ništa ne mijenja`;
+    if (anaSub) anaSub.textContent = "nema novog posla";
+    if (runAnalyze) runAnalyze.disabled = true;
+  } else if (doneForModel === 0 && allRuns.size > 0) {
+    anaHint.textContent = `${todoForModel} segm. za ovaj model · ${earlierModelsPhrase(allRuns.size)}`;
+    if (anaSub) anaSub.textContent = "DODATNA OBRADA — troši kvotu";
+  } else if (doneForModel > 0) {
+    anaHint.textContent = `${todoForModel} od ${withImages.length} preostalo za ovaj model (nastavak)`;
+    if (anaSub) anaSub.textContent = "nastavlja prekinutu obradu";
+  } else {
+    anaHint.textContent = `${todoForModel} segm. — prva obrada ovog područja`;
+    if (anaSub) anaSub.textContent = "troši kvotu modela";
+  }
+}
+
 function populateJobOptions() {
   if (!jobOptions) return;
   const engineSel = document.getElementById("opt-engine");
@@ -376,6 +446,10 @@ function populateJobOptions() {
     }
     engineSel.value = "claude-cli";
     engineSel.addEventListener("change", syncModelOptions);
+    // The hints answer "what would this model do here", so they have to follow the model
+    // choice, not just the area choice.
+    document.getElementById("opt-model").addEventListener("change", updateRunHints);
+    document.getElementById("opt-model-custom").addEventListener("input", updateRunHints);
     syncModelOptions();
   }
 }
@@ -394,6 +468,7 @@ function syncModelOptions() {
   modelSel.onchange = () => {
     document.getElementById("opt-model-custom-wrap").hidden =
       !(modelSel.value === "__custom__" && isOpenRouter);
+    updateRunHints();
   };
   modelSel.onchange();
 }
