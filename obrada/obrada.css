@@ -240,6 +240,7 @@ tbody tr.selected { background: rgba(76, 141, 255, .12); }
 .run-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 .run-btn.primary:hover:not(:disabled) { background: #3d7ae8; color: #fff; }
 .run-btn:disabled { opacity: .45; cursor: not-allowed; }
+.run-sub { font-size: 10px; font-weight: 600; opacity: .75; text-transform: uppercase; letter-spacing: .04em; }
 .run-hint { font-size: 10px; font-weight: 400; opacity: .8; }
 .submit-msg { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 1.2em; }
 .submit-msg.ok { color: var(--ok); }

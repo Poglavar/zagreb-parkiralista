@@ -80,6 +80,7 @@ function parseArgs(argv) {
     maxCostUsd: null,      // metered engines only; stops the run cleanly at the ceiling
     dryRun: true,
     step: null,
+    through: null,         // run every step from the start up to and including this one
     runId: null,           // default derived from area + model, see deriveRunId()
     notes: null,
     help: false
@@ -100,6 +101,7 @@ function parseArgs(argv) {
     else if (argv[i] === "--max-cost-usd") args.maxCostUsd = Number(argv[++i]);
     else if (argv[i] === "--write") args.dryRun = false;
     else if (argv[i] === "--step") args.step = argv[++i];
+    else if (argv[i] === "--through") args.through = argv[++i];
     else if (argv[i] === "--help" || argv[i] === "-h") args.help = true;
     else throw new Error(`Unknown argument: ${argv[i]}`);
   }
@@ -146,7 +148,10 @@ Options:
   --chunk-size N     Batch chunk size (default: 50, openai-batch only)
   --max-chunks N     Max chunks to submit (default: 1, openai-batch only)
   --write            Actually write to DB (default: dry run for ingest step)
-  --step NAME        Run only a specific step (e.g. --step metadata, --step analyze)
+  --step NAME        Run ONLY this step (e.g. --step analyze). Fails if its inputs are
+                     missing, so it is for resuming, not for starting.
+  --through NAME     Run every step up to and including NAME, skipping ones already done.
+                     --through images = fetch imagery and stop before any LLM call.
   --help             Show this message
 
 Engines and what they cost you:
@@ -361,7 +366,28 @@ async function main() {
   log(`Output directory: ${paths.base}`);
   log(`Analyses file: ${path.basename(paths.analyses)}`);
 
-  const shouldRun = (step) => !args.step || args.step === step;
+  // --step runs exactly one step; --through runs everything up to and including one.
+  //
+  // --through exists because a single step is rarely what someone means. "Fetch the images
+  // for this area" needs selection, candidates and metadata first, and asking for --step
+  // images on a fresh area just fails on a missing candidates.json. Steps already done are
+  // skipped by their own output check, so --through is idempotent and cheap to repeat.
+  const STEP_ORDER = ["selection", "candidates", "metadata", "images", "batch-jsonl", "submit", "import", "analyze", "ingest"];
+  if (args.through && !STEP_ORDER.includes(args.through)) {
+    throw new Error(`--through must be one of: ${STEP_ORDER.join(", ")}`);
+  }
+  if (args.step && args.through) {
+    throw new Error("--step and --through are mutually exclusive");
+  }
+  const throughIndex = args.through ? STEP_ORDER.indexOf(args.through) : -1;
+  const shouldRun = (step) => {
+    if (args.step) return args.step === step;
+    if (throughIndex >= 0) {
+      const i = STEP_ORDER.indexOf(step);
+      return i >= 0 && i <= throughIndex;
+    }
+    return true;
+  };
 
   // Step 1: Generate segment selection
   if (shouldRun("selection")) {
@@ -390,7 +416,7 @@ async function main() {
         features
       });
     });
-    if (!ok) return;
+    if (!ok) return false;
   }
 
   // Step 2: Prepare candidates
@@ -398,7 +424,7 @@ async function main() {
     const ok = await runStep("candidates", "Prepare candidates", paths.candidates, async () => {
       await prepareCandidates({ input: paths.selection, out: paths.candidates, size: "640x640", fov: 90, pitch: 0, radius: 30 });
     });
-    if (!ok) return;
+    if (!ok) return false;
   }
 
   // Step 3: Fetch Street View metadata
@@ -407,7 +433,7 @@ async function main() {
       if (!process.env.GOOGLE_MAPS_API_KEY) throw new Error("GOOGLE_MAPS_API_KEY not set in environment");
       await fetchStreetViewMetadata({ input: paths.candidates, out: paths.metadata, keyEnv: "GOOGLE_MAPS_API_KEY", delayMs: 1000, segmentId: null, captureId: null });
     });
-    if (!ok) return;
+    if (!ok) return false;
   }
 
   // Step 4: Fetch Street View images
@@ -416,7 +442,7 @@ async function main() {
       if (!process.env.GOOGLE_MAPS_API_KEY) throw new Error("GOOGLE_MAPS_API_KEY not set in environment");
       await fetchStreetViewImages({ candidates: paths.candidates, metadata: paths.metadata, out: paths.images, imageDir: paths.imageDir, keyEnv: "GOOGLE_MAPS_API_KEY", delayMs: 1000, segmentId: null, captureId: null });
     });
-    if (!ok) return;
+    if (!ok) return false;
   }
 
   // Step 5 (claude-cli / codex-cli engines): analyze through a local CLI.
@@ -452,7 +478,7 @@ async function main() {
         await analyzeWithCodexCli({ ...analyzeOpts, effort: args.effort || "medium" });
       }
     });
-    if (!ok) return;
+    if (!ok) return false;
   }
 
   // Step 5: Generate batch JSONL
@@ -471,7 +497,7 @@ async function main() {
         segmentId: null
       });
     });
-    if (!ok) return;
+    if (!ok) return false;
   }
 
   // Step 6: Submit batch
@@ -487,7 +513,7 @@ async function main() {
         maxChunks: args.maxChunks
       });
     });
-    if (!ok) return;
+    if (!ok) return false;
   }
 
   // Step 7: Import batch results
@@ -503,12 +529,12 @@ async function main() {
         status: false
       });
     });
-    if (!ok) return;
+    if (!ok) return false;
   }
 
   // Step 8: Ingest to database
   if (shouldRun("ingest")) {
-    await runStep("ingest", "Ingest to database", null, async () => {
+    const ok = await runStep("ingest", "Ingest to database", null, async () => {
       const databaseUrl = await loadDatabaseUrlAsync();
       if (!databaseUrl) throw new Error("DATABASE_URL not found in environment or cadastre-data/api/.env");
 
@@ -535,14 +561,26 @@ async function main() {
       if (!args.dryRun) ingestArgs.push("--write");
       execFileSync("node", ingestArgs, { stdio: "inherit" });
     });
+    if (!ok) return false;
   }
 
   log(`=== Pipeline complete for area: ${areaName} ===`);
+  return true;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((err) => {
-    console.error(`[${ts()}] FATAL: ${err.message}`);
-    process.exit(1);
-  });
+  main()
+    .then((ok) => {
+      // A failing step used to log "FAIL: …" and then return, which exits 0 — so every
+      // caller saw success. The job manager duly showed a green "gotovo" for a run that
+      // had fetched nothing. A failed step is a failed process.
+      if (!ok) {
+        console.error(`[${ts()}] Pipeline did not complete — see the FAIL line above.`);
+        process.exit(1);
+      }
+    })
+    .catch((err) => {
+      console.error(`[${ts()}] FATAL: ${err.message}`);
+      process.exit(1);
+    });
 }

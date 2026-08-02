@@ -55,7 +55,7 @@ function safeArg(value, label) {
 export function validateJobSpec(spec = {}) {
   const errors = [];
   const {
-    area, benchmark = false, step = "full", engine = "claude-cli",
+    area, benchmark = false, step = "full", through = null, engine = "claude-cli",
     model, effort, workers, limit, maxCostUsd, write = false
   } = spec;
 
@@ -69,6 +69,8 @@ export function validateJobSpec(spec = {}) {
   }
 
   if (!STEPS.includes(step)) errors.push(`step must be one of: ${STEPS.join(", ")}`);
+  if (through != null && !STEPS.includes(through)) errors.push(`through must be one of: ${STEPS.join(", ")}`);
+  if (through != null && step !== "full") errors.push("step and through are mutually exclusive");
   if (!ENGINE_MODELS[engine]) errors.push(`engine must be one of: ${Object.keys(ENGINE_MODELS).join(", ")}`);
 
   if (model != null) {
@@ -109,9 +111,16 @@ export function validateJobSpec(spec = {}) {
   if (benchmark) argv.push("--benchmark");
   else argv.push("--area", area.trim());
   if (step !== "full") argv.push("--step", step);
-  argv.push("--engine", engine);
-  if (model) argv.push("--model", model);
-  if (effort) argv.push("--effort", effort);
+  if (through) argv.push("--through", through);
+  // Only name an engine on a job that can actually reach a model. process-area ignores it
+  // otherwise, but it still showed up in the command line, and reading "--engine
+  // claude-cli" on an image download is exactly what makes it unclear whether a model was
+  // called. The command should be as honest as the label.
+  if (usesLlm({ step, through })) {
+    argv.push("--engine", engine);
+    if (model) argv.push("--model", model);
+    if (effort) argv.push("--effort", effort);
+  }
   if (workers != null) argv.push("--workers", String(Number(workers)));
   if (limit != null) argv.push("--limit", String(Number(limit)));
   if (maxCostUsd != null) argv.push("--max-cost-usd", String(Number(maxCostUsd)));
@@ -120,13 +129,57 @@ export function validateJobSpec(spec = {}) {
   return { ok: true, argv };
 }
 
+// Pipeline order, so "does this reach step X" is a comparison rather than a lookup.
+// A membership test gets `through: "ingest"` wrong — ingest is not itself an LLM step, but
+// running through it runs analyze on the way.
+const STEP_ORDER = ["selection", "candidates", "metadata", "images", "analyze", "ingest"];
+const ANALYZE_INDEX = STEP_ORDER.indexOf("analyze");
+const INGEST_INDEX = STEP_ORDER.indexOf("ingest");
+
+function reachesIndex(spec, index) {
+  if (spec.through) return STEP_ORDER.indexOf(spec.through) >= index;
+  const step = spec.step || "full";
+  if (step === "full") return true;
+  return STEP_ORDER.indexOf(step) === index;
+}
+
+function usesLlm(spec) {
+  return reachesIndex(spec, ANALYZE_INDEX);
+}
+
+// --write only affects the ingest step, so a job that never reaches it writes nothing
+// whatever the flag says. Claiming "piše u bazu" on an image fetch is a smaller lie than
+// naming an engine, but it is the same kind.
+function reachesIngest(spec) {
+  return reachesIndex(spec, INGEST_INDEX);
+}
+
 // Short human label for the jobs list.
+//
+// It must not name an engine for a job that never calls one. The old version appended the
+// engine unconditionally, so an image download read as
+// "… · images · claude-cli · piše u bazu" and looked exactly like an LLM run — which is
+// precisely the doubt this label exists to remove.
 export function describeJob(spec) {
   const target = spec.benchmark ? "benchmark" : spec.area;
-  const what = spec.step === "full" || !spec.step ? "cijeli pipeline" : spec.step;
-  const who = spec.model ? `${spec.engine}/${spec.model}` : spec.engine;
-  return `${target} · ${what} · ${who}${spec.write ? " · piše u bazu" : " · dry run"}`;
+  const what = spec.through
+    ? `sve do: ${STEP_LABELS[spec.through] || spec.through}`
+    : (STEP_LABELS[spec.step || "full"] || spec.step);
+  const parts = [target, what];
+  if (usesLlm(spec)) parts.push(spec.model ? `${spec.engine}/${spec.model}` : spec.engine);
+  if (reachesIngest(spec)) parts.push(spec.write ? "piše u bazu" : "dry run");
+  return parts.join(" · ");
 }
+
+const STEP_LABELS = {
+  full: "cijeli pipeline (uklj. LLM)",
+  selection: "odabir segmenata",
+  candidates: "priprema snimaka",
+  metadata: "Street View metadata",
+  images: "preuzimanje snimaka",
+  analyze: "LLM analiza",
+  ingest: "upis u bazu"
+};
 
 // --- runner -------------------------------------------------------------------------
 

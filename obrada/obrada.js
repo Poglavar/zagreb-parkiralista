@@ -385,26 +385,32 @@ function currentJobSpec(step) {
   const limit = limitRaw === "" ? null : Number(limitRaw);
   const maxCost = engineNeedsCost(engine) ? Number(document.getElementById("opt-max-cost").value) : null;
 
-  const spec = {
-    area: state.selected,
-    step,
-    engine,
-    write: document.getElementById("opt-write").checked
-  };
-  // Only send what was actually chosen — the validator rejects nulls it does not expect,
-  // and an empty string would become a real (invalid) argv entry.
+  const spec = { area: state.selected };
+
+  if (step === "images") {
+    // No --write: it only affects the ingest step, which this never reaches.
+    // Everything up to and including the image fetch, and nothing after it — so this
+    // never calls a model. --through rather than --step because the earlier steps
+    // (selection, candidates, metadata) must exist first; asking for the images step
+    // alone on a fresh area just fails on a missing candidates.json.
+    spec.through = "images";
+    // No engine or model: naming one on a job that never calls a model is what made an
+    // image download read as an LLM run.
+    return spec;
+  }
+
+  // Analysis: the full chain. Steps already done skip themselves, so this picks up from
+  // wherever the area got to and carries on through the LLM call and the database write.
+  spec.step = "full";
+  spec.engine = engine;
+  spec.write = document.getElementById("opt-write").checked;
+  // Only send what was actually chosen — an empty string would become a real (invalid)
+  // argv entry.
   if (model) spec.model = model;
   if (effort) spec.effort = effort;
   if (workers) spec.workers = workers;
   if (limit) spec.limit = limit;
   if (maxCost) spec.maxCostUsd = maxCost;
-  // The image fetch has no model or engine dimension; sending them would only produce a
-  // second analyses filename for a step that writes none.
-  if (step === "images") {
-    delete spec.model;
-    delete spec.effort;
-    delete spec.maxCostUsd;
-  }
   return spec;
 }
 

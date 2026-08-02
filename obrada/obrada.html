@@ -93,13 +93,16 @@
       <!-- Pokretanje posla za područje koje je trenutno otvoreno. Vidljivo samo kad je
            lokalna nadzorna ploča dostupna, jer samo ona može pokrenuti proces. -->
       <div class="submit" id="submit-panel" hidden>
+        <!-- Dva odvojena koraka. Prvi ne zove nikakav model — samo preuzima snimke. -->
         <div class="submit-row">
           <button type="button" class="run-btn" id="run-images">
-            Skini snimke
+            1 · Skini snimke
+            <span class="run-sub">bez LLM-a</span>
             <span class="run-hint" id="run-images-hint"></span>
           </button>
           <button type="button" class="run-btn primary" id="run-analyze">
-            Analiziraj LLM-om
+            2 · Analiziraj LLM-om
+            <span class="run-sub">troši kvotu modela</span>
             <span class="run-hint" id="run-analyze-hint"></span>
           </button>
         </div>
