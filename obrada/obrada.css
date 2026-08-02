@@ -192,6 +192,7 @@ tbody tr.selected { background: rgba(76, 141, 255, .12); }
 .pill.multi   { color: var(--multi); border-color: rgba(163, 113, 247, .4); background: rgba(163, 113, 247, .1); }
 .pill.human   { color: var(--ok); border-color: rgba(63, 185, 80, .4); background: rgba(63, 185, 80, .1); }
 .pill.empty   { color: #8b98ad; border-color: var(--line); background: rgba(139, 152, 173, .08); }
+.pill.nosv    { color: #9b8bb4; border-color: rgba(155, 139, 180, .35); background: rgba(155, 139, 180, .08); }
 .pill.failed  { color: var(--bad); border-color: rgba(248, 81, 73, .4); background: rgba(248, 81, 73, .1); }
 
 /* --- detail panel --- */

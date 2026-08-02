@@ -77,6 +77,12 @@ function segmentState(p) {
       : { key: "empty", label: "analizirano — bez parkinga", color: "#8b98ad" };
   }
   if (Number(p.image_count) > 0) return { key: "ready", label: "snimke spremne", color: "#d29922" };
+  // Checked and Google has no panorama here. This is a permanent property of the street,
+  // not a queue item — showing it as "nije obrađeno" put work in the backlog that no
+  // amount of fetching could ever clear.
+  if (p.imagery_checked && Number(p.covered_count) === 0) {
+    return { key: "nosv", label: "nema Street Viewa", color: "#4a3f5c" };
+  }
   return { key: "none", label: "nije obrađeno", color: "#3a4150" };
 }
 
@@ -236,6 +242,7 @@ async function selectArea(area) {
   const chips = [
     ["ukupno", feats.length],
     ["nije obrađeno", tally.none || 0],
+    ["nema Street Viewa", tally.nosv || 0],
     ["snimke spremne", tally.ready || 0],
     ["analizirano", tally.done || 0],
     ["bez parkinga", tally.empty || 0],
@@ -248,25 +255,42 @@ async function selectArea(area) {
     .map(([k, v]) => `<span class="chip">${escapeHtml(k)} <strong>${fmt(v)}</strong></span>`)
     .join("");
 
-  // Say what each button would actually do here before it is pressed. "Skini snimke" on an
-  // area that already has them is a no-op, and analysing an area with no imagery cannot
-  // work at all — both are worth knowing without reading the log afterwards.
-  const missingImages = feats.filter((f) => Number(f.properties.image_count) === 0).length;
-  const unanalysed = feats.filter((f) => Number(f.properties.run_count) === 0).length;
+  // Say what each button would actually do here before it is pressed — and only count work
+  // the button can actually do. A segment Google has no panorama for has no images and
+  // never will, so counting it as "bez snimaka" promises a fetch that finishes instantly
+  // having changed nothing, which is exactly what it did.
+  const fetchable = feats.filter((f) =>
+    Number(f.properties.covered_count) > Number(f.properties.image_count)).length;
+  const noStreetView = feats.filter((f) =>
+    f.properties.imagery_checked && Number(f.properties.covered_count) === 0).length;
+  const unchecked = feats.filter((f) => !f.properties.imagery_checked).length;
+  const withImages = feats.filter((f) => Number(f.properties.image_count) > 0).length;
+  const unanalysed = feats.filter((f) =>
+    Number(f.properties.run_count) === 0 && Number(f.properties.image_count) > 0).length;
+
   const imgHint = document.getElementById("run-images-hint");
   const anaHint = document.getElementById("run-analyze-hint");
   if (imgHint) {
-    imgHint.textContent = missingImages === 0
-      ? "sve snimke već postoje"
-      : `${missingImages} segm. bez snimaka`;
+    const parts = [];
+    if (fetchable) parts.push(`${fetchable} za preuzimanje`);
+    if (unchecked) parts.push(`${unchecked} neprovjereno`);
+    if (!parts.length) {
+      parts.push(noStreetView
+        ? `sve što postoji je skinuto · ${noStreetView} bez Street Viewa`
+        : "sve snimke već postoje");
+    }
+    imgHint.textContent = parts.join(" · ");
   }
   if (anaHint) {
-    anaHint.textContent = feats.length - missingImages === 0
+    anaHint.textContent = withImages === 0
       ? "nema snimaka za analizu"
-      : `${unanalysed} segm. neanalizirano`;
+      : `${unanalysed} od ${withImages} neanalizirano`;
   }
   const runAnalyze = document.getElementById("run-analyze");
-  if (runAnalyze) runAnalyze.disabled = (feats.length - missingImages) === 0;
+  if (runAnalyze) runAnalyze.disabled = withImages === 0;
+  // Nothing left to fetch and nothing left to check: the button can only be a no-op.
+  const runImages = document.getElementById("run-images");
+  if (runImages) runImages.disabled = fetchable === 0 && unchecked === 0;
 
   els.segmentTbody.innerHTML = "";
   for (const f of feats) {
