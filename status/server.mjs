@@ -14,6 +14,7 @@ import { fileURLToPath } from "url";
 import { promisify } from "util";
 import pg from "pg";
 import { JobRunner, ENGINE_MODELS, STEPS, EFFORTS } from "./jobs.mjs";
+import { streetViewBudget } from "./budget.mjs";
 
 const execFileAsync = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,10 @@ function isAllowedOrigin(origin) {
 
 // Heartbeats older than this are shown as "stalo" (stalled) instead of running.
 const HEARTBEAT_FRESH_MS = 90_000;
+
+// Street View spend is re-queried from Google at most this often — see the /budget route.
+const BUDGET_CACHE_MS = 30_000;
+let budgetCache = null;
 
 function log(msg) {
   console.log(`[${new Date().toISOString().slice(11, 19)}] ${msg}`);
@@ -357,6 +362,27 @@ const server = http.createServer(async (req, res) => {
       }
 
       return sendJson(res, 404, { error: "not found" }, origin);
+    }
+
+    // --- Street View spend -------------------------------------------------------------
+    // Cached: every call spawns gcloud for a token and then queries Cloud Monitoring, and
+    // the page polls every 30 s. Monitoring's own ingestion lags a couple of minutes anyway,
+    // so a stale half-minute costs nothing.
+    //
+    // A failure is reported as 503 with the reason rather than as a zero: the credentials
+    // can lapse, and a budget bar reading "0 used" because nobody is logged in would invite
+    // exactly the spending it exists to prevent.
+    if (req.url.startsWith("/budget")) {
+      const now = Date.now();
+      if (!budgetCache || now - budgetCache.at > BUDGET_CACHE_MS) {
+        try {
+          budgetCache = { at: now, value: await streetViewBudget() };
+        } catch (err) {
+          log(`budget unavailable: ${err.message}`);
+          return sendJson(res, 503, { error: err.message }, origin);
+        }
+      }
+      return sendJson(res, 200, budgetCache.value, origin);
     }
 
     if (req.url.startsWith("/status.json")) {

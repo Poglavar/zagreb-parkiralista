@@ -1,0 +1,279 @@
+{
+  "timeSeries": [
+    {
+      "metric": {
+        "labels": {
+          "response_code_class": "2xx"
+        },
+        "type": "serviceruntime.googleapis.com/api/request_count"
+      },
+      "resource": {
+        "type": "consumed_api",
+        "labels": {
+          "method": "google.maps.StreetView.Http",
+          "project_id": "cogent-calling-385120"
+        }
+      },
+      "metricKind": "DELTA",
+      "valueType": "INT64",
+      "points": [
+        {
+          "interval": {
+            "startTime": "2026-08-05T08:00:00Z",
+            "endTime": "2026-08-05T09:00:00Z"
+          },
+          "value": {
+            "int64Value": "1"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T23:00:00Z",
+            "endTime": "2026-08-03T00:00:00Z"
+          },
+          "value": {
+            "int64Value": "237"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T22:00:00Z",
+            "endTime": "2026-08-02T23:00:00Z"
+          },
+          "value": {
+            "int64Value": "1416"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T19:00:00Z",
+            "endTime": "2026-08-02T20:00:00Z"
+          },
+          "value": {
+            "int64Value": "114"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T18:00:00Z",
+            "endTime": "2026-08-02T19:00:00Z"
+          },
+          "value": {
+            "int64Value": "996"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T16:00:00Z",
+            "endTime": "2026-08-02T17:00:00Z"
+          },
+          "value": {
+            "int64Value": "882"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T15:00:00Z",
+            "endTime": "2026-08-02T16:00:00Z"
+          },
+          "value": {
+            "int64Value": "226"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T14:00:00Z",
+            "endTime": "2026-08-02T15:00:00Z"
+          },
+          "value": {
+            "int64Value": "98"
+          }
+        }
+      ]
+    },
+    {
+      "metric": {
+        "labels": {
+          "response_code_class": "2xx"
+        },
+        "type": "serviceruntime.googleapis.com/api/request_count"
+      },
+      "resource": {
+        "type": "consumed_api",
+        "labels": {
+          "project_id": "cogent-calling-385120",
+          "method": "google.maps.StreetViewMetadata.Http"
+        }
+      },
+      "metricKind": "DELTA",
+      "valueType": "INT64",
+      "points": [
+        {
+          "interval": {
+            "startTime": "2026-08-02T22:00:00Z",
+            "endTime": "2026-08-02T23:00:00Z"
+          },
+          "value": {
+            "int64Value": "1780"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T19:00:00Z",
+            "endTime": "2026-08-02T20:00:00Z"
+          },
+          "value": {
+            "int64Value": "114"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T18:00:00Z",
+            "endTime": "2026-08-02T19:00:00Z"
+          },
+          "value": {
+            "int64Value": "1000"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T16:00:00Z",
+            "endTime": "2026-08-02T17:00:00Z"
+          },
+          "value": {
+            "int64Value": "803"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T15:00:00Z",
+            "endTime": "2026-08-02T16:00:00Z"
+          },
+          "value": {
+            "int64Value": "460"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T14:00:00Z",
+            "endTime": "2026-08-02T15:00:00Z"
+          },
+          "value": {
+            "int64Value": "731"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T13:00:00Z",
+            "endTime": "2026-08-02T14:00:00Z"
+          },
+          "value": {
+            "int64Value": "52"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T12:00:00Z",
+            "endTime": "2026-08-02T13:00:00Z"
+          },
+          "value": {
+            "int64Value": "112"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T11:00:00Z",
+            "endTime": "2026-08-02T12:00:00Z"
+          },
+          "value": {
+            "int64Value": "44"
+          }
+        }
+      ]
+    },
+    {
+      "metric": {
+        "labels": {
+          "response_code_class": "4xx"
+        },
+        "type": "serviceruntime.googleapis.com/api/request_count"
+      },
+      "resource": {
+        "type": "consumed_api",
+        "labels": {
+          "method": "google.maps.StreetViewMetadata.Http",
+          "project_id": "cogent-calling-385120"
+        }
+      },
+      "metricKind": "DELTA",
+      "valueType": "INT64",
+      "points": [
+        {
+          "interval": {
+            "startTime": "2026-08-02T22:00:00Z",
+            "endTime": "2026-08-02T23:00:00Z"
+          },
+          "value": {
+            "int64Value": "36"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T18:00:00Z",
+            "endTime": "2026-08-02T19:00:00Z"
+          },
+          "value": {
+            "int64Value": "2"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T15:00:00Z",
+            "endTime": "2026-08-02T16:00:00Z"
+          },
+          "value": {
+            "int64Value": "2"
+          }
+        },
+        {
+          "interval": {
+            "startTime": "2026-08-02T14:00:00Z",
+            "endTime": "2026-08-02T15:00:00Z"
+          },
+          "value": {
+            "int64Value": "4"
+          }
+        }
+      ]
+    },
+    {
+      "metric": {
+        "labels": {
+          "response_code_class": "5xx"
+        },
+        "type": "serviceruntime.googleapis.com/api/request_count"
+      },
+      "resource": {
+        "type": "consumed_api",
+        "labels": {
+          "project_id": "cogent-calling-385120",
+          "method": "google.maps.StreetViewMetadata.Http"
+        }
+      },
+      "metricKind": "DELTA",
+      "valueType": "INT64",
+      "points": [
+        {
+          "interval": {
+            "startTime": "2026-08-02T16:00:00Z",
+            "endTime": "2026-08-02T17:00:00Z"
+          },
+          "value": {
+            "int64Value": "2"
+          }
+        }
+      ]
+    }
+  ],
+  "unit": "1"
+}
