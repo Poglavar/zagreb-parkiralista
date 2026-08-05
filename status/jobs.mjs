@@ -134,6 +134,7 @@ export function validateJobSpec(spec = {}) {
 // running through it runs analyze on the way.
 const STEP_ORDER = ["selection", "candidates", "metadata", "images", "analyze", "ingest"];
 const ANALYZE_INDEX = STEP_ORDER.indexOf("analyze");
+const IMAGES_INDEX = STEP_ORDER.indexOf("images");
 const INGEST_INDEX = STEP_ORDER.indexOf("ingest");
 
 function reachesIndex(spec, index) {
@@ -154,6 +155,14 @@ function reachesIngest(spec) {
   return reachesIndex(spec, INGEST_INDEX);
 }
 
+// The images step records the imagery inventory (parking.segment_imagery) regardless of
+// --write: it is an inventory of the street, not a model's output, and the status map is
+// wrong until it is written. So a fetch DOES touch the database, and saying "dry run" on
+// it would be the same lie in the other direction.
+function reachesImages(spec) {
+  return reachesIndex(spec, IMAGES_INDEX);
+}
+
 // Short human label for the jobs list.
 //
 // It must not name an engine for a job that never calls one. The old version appended the
@@ -170,6 +179,7 @@ export function describeJob(spec) {
   const parts = [target, what];
   if (usesLlm(spec)) parts.push(spec.model ? `${spec.engine}/${spec.model}` : spec.engine);
   if (reachesIngest(spec)) parts.push(spec.write ? "piše u bazu" : "dry run");
+  else if (reachesImages(spec)) parts.push("upisuje snimke u bazu");
   return parts.join(" · ");
 }
 

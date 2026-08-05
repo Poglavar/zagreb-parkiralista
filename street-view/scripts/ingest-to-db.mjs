@@ -12,6 +12,7 @@ import { pathToFileURL } from "url";
 import { buildParkingSidePolygons } from "./lib/parking.mjs";
 import { splitPolylineEqual } from "./lib/geo.mjs";
 import { fileExists, readJson, resolveFrom } from "./lib/io.mjs";
+import { tallyImagery, writeImagery } from "./lib/imagery-inventory.mjs";
 
 function parseArgs(argv) {
   const args = {
@@ -127,31 +128,15 @@ async function main() {
     });
   }
 
-  // Imagery inventory per base segment. capture_count comes from the plan, covered_count
-  // from the free metadata preflight, image_count from what is actually on disk — three
-  // different facts that the status page must not conflate (a planned capture Google has
-  // no pano for is a real gap in the city, not a stalled download).
-  const imageryBySegment = new Map();
-  const imagery = (sid) => {
-    if (!imageryBySegment.has(sid)) {
-      imageryBySegment.set(sid, { segment_id: sid, capture_count: 0, covered_count: 0, image_count: 0 });
-    }
-    return imageryBySegment.get(sid);
-  };
-  for (const seg of candidateData.segments) {
-    imagery(String(seg.segment_id)).capture_count = (seg.captures || []).length;
-  }
-  for (const img of imageByCapture.values()) {
-    // capture ids are "<segment>-s<station>-<direction>", so the base id is the head.
-    const sid = String(img.segment_id ?? String(img.capture_id).split("-s")[0]);
-    imagery(sid).image_count += 1;
-  }
-  if (args.metadata && await fileExists(args.metadata)) {
-    const metaData = await readJson(args.metadata);
-    for (const m of metaData.results || []) {
-      if (m.ok && m.response?.status === "OK") imagery(String(m.segment_id)).covered_count += 1;
-    }
-  }
+  // Imagery inventory per base segment. Shared with the images step of process-area.mjs,
+  // which records the same thing the moment a fetch finishes — an area that is fetched but
+  // never analysed must still appear on the status map.
+  const metaData = args.metadata && await fileExists(args.metadata) ? await readJson(args.metadata) : null;
+  const imageryInventory = tallyImagery({
+    candidateSegments: candidateData.segments,
+    imageRecords: [...imageByCapture.values()],
+    metadataResults: metaData?.results || []
+  });
 
   const resolvedModel = args.model || analysisData.model || "unknown";
   let insertCount = 0;
@@ -249,7 +234,7 @@ async function main() {
   const covTally = coverage.reduce((acc, c) => { acc[c.outcome] = (acc[c.outcome] || 0) + 1; return acc; }, {});
   console.log(`Prepared ${insertCount} polygon inserts from ${resultBySegment.size} analyzed segments (${skipCount} skipped)`);
   console.log(`Coverage: ${coverage.length} segments — ${covTally.parking || 0} with parking, ${covTally.no_parking || 0} clean-but-empty, ${covTally.failed || 0} failed`);
-  console.log(`Imagery: ${imageryBySegment.size} segments inventoried`);
+  console.log(`Imagery: ${imageryInventory.length} segments inventoried`);
 
   if (args.dryRun) {
     console.log("Dry run — no database writes. Pass --write to insert.");
@@ -378,32 +363,8 @@ async function main() {
         console.log(`Recorded coverage for ${coverage.length} segments under run "${args.runId}"`);
       }
 
-      // Imagery is a property of the street, not of the run — a second model over the
-      // same area reuses the same JPEGs. So this upserts rather than appends, and takes
-      // the max of what any ingest has seen (a --limit run must not shrink the record of
-      // a full fetch that already happened).
-      const inventory = [...imageryBySegment.values()];
-      if (inventory.length > 0) {
-        await client.query(`
-          INSERT INTO parking.segment_imagery
-            (segment_id, source, capture_count, covered_count, image_count, fetched_at)
-          SELECT i.segment_id, $1, i.capture_count, i.covered_count, i.image_count, now()
-          FROM unnest($2::text[], $3::int[], $4::int[], $5::int[])
-               AS i(segment_id, capture_count, covered_count, image_count)
-          ON CONFLICT (segment_id, source) DO UPDATE SET
-            capture_count = GREATEST(parking.segment_imagery.capture_count, EXCLUDED.capture_count),
-            covered_count = GREATEST(parking.segment_imagery.covered_count, EXCLUDED.covered_count),
-            image_count   = GREATEST(parking.segment_imagery.image_count,   EXCLUDED.image_count),
-            fetched_at = EXCLUDED.fetched_at, updated_at = now()
-        `, [
-          args.imagerySource,
-          inventory.map((i) => i.segment_id),
-          inventory.map((i) => i.capture_count),
-          inventory.map((i) => i.covered_count),
-          inventory.map((i) => i.image_count)
-        ]);
-        console.log(`Recorded imagery for ${inventory.length} segments (source: ${args.imagerySource})`);
-      }
+      const written = await writeImagery(client, args.imagerySource, imageryInventory);
+      if (written > 0) console.log(`Recorded imagery for ${written} segments (source: ${args.imagerySource})`);
 
       await client.query(`
         UPDATE parking.run SET segment_count = (SELECT COUNT(*) FROM parking.observation WHERE run_id = $1)

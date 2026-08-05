@@ -13,6 +13,7 @@ import { importOpenAiBatch } from "./import-openai-batch.mjs";
 import { analyzeWithClaudeCli } from "./analyze-claude-cli.mjs";
 import { analyzeWithCodexCli } from "./analyze-codex-cli.mjs";
 import { analyzeWithOpenRouter } from "./analyze-openrouter.mjs";
+import { recordImagery } from "./record-imagery.mjs";
 
 // Segments come from the shared roads API (road_width_segment in geodata), which is the
 // single source of truth and carries osm_id + street_name. We used to read
@@ -456,6 +457,27 @@ async function main() {
       await fetchStreetViewImages({ candidates: paths.candidates, metadata: paths.metadata, out: paths.images, imageDir: paths.imageDir, keyEnv: "GOOGLE_MAPS_API_KEY", delayMs: 1000, segmentId: null, captureId: null });
     });
     if (!ok) return false;
+
+    // Record what the area now has, so the status map reflects the fetch. Deliberately
+    // OUTSIDE runStep: it must run even when the fetch itself was skipped as already
+    // done, because that is exactly the case where the JPEGs exist and the database has
+    // never heard of them. Re-running an area is how you repair it.
+    //
+    // Not gated on --write either: this is an inventory of the street, not the output of
+    // a model, so there is no dry-run worth having. A fetch that stays invisible on the
+    // map is the bug this whole step exists to close.
+    const ok2 = await runStep("images", "Record imagery in the database", null, async () => {
+      await recordImagery({
+        candidates: paths.candidates,
+        metadata: paths.metadata,
+        images: paths.images,
+        source: "google_street_view",
+        databaseUrl: await loadDatabaseUrlAsync(),
+        dryRun: false,
+        log
+      });
+    });
+    if (!ok2) return false;
   }
 
   // Step 5 (claude-cli / codex-cli engines): analyze through a local CLI.
