@@ -37,6 +37,18 @@
       <div id="live-body" class="live-body"></div>
     </section>
 
+    <!-- Google kvota za ovaj mjesec. Stoji uz vrh, a ne uz gumb za preuzimanje: kvota je
+         činjenica o cijelom mjesecu, a ploča s gumbima se pokazuje tek kad se odabere
+         područje — pa se tamo ne bi vidjela dok se ne klikne. -->
+    <section class="budget" id="budget" hidden>
+      <div class="budget-head">
+        <span class="budget-title">Street View kvota <span class="muted" id="budget-month"></span></span>
+        <span class="budget-num" id="budget-num"></span>
+      </div>
+      <span class="budget-bar"><span id="budget-fill"></span></span>
+      <div class="budget-note muted" id="budget-note"></div>
+    </section>
+
     <section class="summary" id="summary" aria-live="polite">
       <div class="loading">Učitavanje…</div>
     </section>
@@ -66,6 +78,9 @@
             <span class="sw sw-3"></span><span class="sw sw-4"></span>
           </div>
           <div class="legend-ends"><span>0 %</span><span>100 %</span></div>
+          <ul class="legend-keys">
+            <li><span class="dot-complete"></span>snimke potpune — sve provjereno i preuzeto</li>
+          </ul>
         </div>
         <div id="legend-segments" hidden>
           <div class="legend-title">Stanje ulice</div>

@@ -280,3 +280,48 @@ tbody tr.selected { background: rgba(76, 141, 255, .12); }
   .topbar h1 { font-size: 15px; }
   .tile .val { font-size: 18px; }
 }
+
+/* The green dot marking an area whose Street View imagery is complete. Same swatch is
+   reused in the legend and in the area popup so the map and the text agree. */
+.dot-complete {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #22c55e;
+  border: 1.5px solid #0b0d11;
+  flex: none;
+  vertical-align: -1px;
+  margin-right: 2px;
+}
+
+#legend-areas .legend-keys { margin-top: 6px; }
+
+/* Street View quota bar, above the download button. Colours only escalate — the neutral
+   state is deliberately quiet so that amber and red mean something when they appear. */
+.budget {
+  border: 1px solid var(--line, #222834);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.budget-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.budget-title { font-size: 12px; font-weight: 600; }
+.budget-num { font-size: 12px; font-variant-numeric: tabular-nums; }
+.budget-bar {
+  display: block;
+  height: 6px;
+  margin: 6px 0 5px;
+  border-radius: 3px;
+  background: #2a2f3a;
+  overflow: hidden;
+}
+.budget-bar > span { display: block; height: 100%; background: #3fb950; transition: width 0.3s ease; }
+.budget.warn .budget-bar > span { background: #d29922; }
+.budget.over .budget-bar > span { background: #f85149; }
+.budget.over .budget-num { color: #f85149; }
+.budget-note { font-size: 11px; line-height: 1.35; }
+
+/* The budget sits in the top strip, so it needs the same outer rhythm as .live. */
+section.budget { margin-bottom: 14px; }

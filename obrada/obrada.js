@@ -29,7 +29,8 @@ const state = {
   selected: null,
   selectedFeatures: null,   // segments of the open area, for recomputing the run hints
   layer: null,
-  segmentLayer: null
+  segmentLayer: null,
+  imageryDotLayer: null     // green dot per area whose Street View imagery is complete
 };
 
 const els = {};
@@ -171,6 +172,28 @@ function renderAreaTable() {
   }
 }
 
+// One dot per area whose imagery is finished: every segment checked against Street View
+// and every panorama that exists already on disk. It answers "where do I no longer need to
+// spend Google quota?", which the analysis choropleth underneath cannot say — an area can
+// be fully downloaded and entirely unanalysed, and those look identical in the fill colour.
+//
+// Non-interactive on purpose: the dot must not swallow the click that opens the area popup.
+function renderImageryDots() {
+  if (state.imageryDotLayer) { map.removeLayer(state.imageryDotLayer); state.imageryDotLayer = null; }
+
+  const dots = visibleAreas()
+    .filter((f) => f.properties.images_complete && f.properties.label_point)
+    .map((f) => L.circleMarker(
+      [f.properties.label_point.coordinates[1], f.properties.label_point.coordinates[0]],
+      {
+        radius: 5, color: "#0b0d11", weight: 1.5,
+        fillColor: "#22c55e", fillOpacity: 1, interactive: false
+      }
+    ));
+
+  if (dots.length) state.imageryDotLayer = L.layerGroup(dots).addTo(map);
+}
+
 function renderAreaLayer() {
   if (state.layer) map.removeLayer(state.layer);
   if (state.segmentLayer) { map.removeLayer(state.segmentLayer); state.segmentLayer = null; }
@@ -193,6 +216,9 @@ function renderAreaLayer() {
         <div class="popup-row">${escapeHtml(p.parent || "")}${p.parent ? " · " : ""}krug ${fmt(p.ring_index)}</div>
         <div class="popup-row">${fmt(p.analysed)} / ${fmt(p.segments)} segmenata analizirano (${pct(p.analysed, p.segments).toFixed(0)} %)</div>
         <div class="popup-row">${fmt(p.with_images)} sa snimkama · ${fmt(p.reviewed)} ljudski</div>
+        <div class="popup-row">${p.images_complete
+          ? `<span class="dot-complete"></span> snimke potpune — nema više preuzimanja`
+          : `${fmt(p.imagery_unchecked)} neprovjereno${Number(p.fetchable) > 0 ? ` · ${fmt(p.fetchable)} za preuzimanje` : ""}`}</div>
         ${Number(p.ready_unprocessed) > 0
           ? `<div class="popup-row"><strong>${fmt(p.ready_unprocessed)}</strong> spremno za obradu</div>` : ""}
         <button type="button" class="popup-btn" data-area="${escapeHtml(p.area)}">Prikaži ulice</button>
@@ -201,6 +227,7 @@ function renderAreaLayer() {
     }
   }).addTo(map);
 
+  renderImageryDots();
   fitTo(state.layer);
 }
 
@@ -549,6 +576,50 @@ const JOB_STATUS_LABELS = {
   stopped: "prekinut", stopping: "zaustavljam…", unknown: "nepoznato"
 };
 
+// Google's free Street View Static allowance for the month, read from Cloud Monitoring (see
+// status/budget.mjs) rather than counted from our own downloads. That matters: the same API
+// key is used by zagreb-zgrade-datiranje, so a figure derived from this repo's files sees
+// only part of the month's spend. It sits near the top rather than beside the download
+// button: the quota is a fact about the whole month, and the button panel only appears
+// once an area is selected, so anchoring it there would hide the number until you clicked.
+let lastBudget = null;
+
+function renderBudget(b) {
+  const box = document.getElementById("budget");
+  if (!b) { box.hidden = true; return; }
+  box.hidden = false;
+  lastBudget = b;
+
+  document.getElementById("budget-month").textContent = b.month;
+  document.getElementById("budget-num").textContent =
+    `${fmt(b.used)} / ${fmt(b.free_quota)}`;
+
+  const fill = document.getElementById("budget-fill");
+  fill.style.width = `${Math.min(100, b.pct_used).toFixed(1)}%`;
+  // Colour by how close the free allowance is to running out, not by an arbitrary scale:
+  // under half is unremarkable, past 80 % the next area might tip into paid.
+  box.classList.toggle("warn", b.pct_used >= 80 && b.overage === 0);
+  box.classList.toggle("over", b.overage > 0);
+
+  const note = b.overage > 0
+    ? `${fmt(b.overage)} preko besplatne kvote · ${b.cost_usd.toFixed(2)} USD (${b.usd_per_1000} USD / 1000)`
+    : `još ${fmt(b.remaining)} besplatnih zahtjeva ovaj mjesec`;
+  // Said plainly: this is Google's own count for the whole key, so it includes downloads
+  // made by other projects — not just what this repo fetched.
+  document.getElementById("budget-note").textContent =
+    `${note} · Googleov podatak za cijeli ključ, uključuje i druge projekte`;
+}
+
+async function pollBudget() {
+  try {
+    const resp = await fetch(`${LIVE_BASE}/budget`, { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    renderBudget(await resp.json());
+  } catch {
+    renderBudget(null);
+  }
+}
+
 async function pollJobs() {
   const section = document.getElementById("jobs-section");
   let data;
@@ -642,7 +713,10 @@ function initMap() {
 
 // The localhost-only dashboard (status/server.mjs). Reachable only when it is running on
 // this machine, which is exactly when "what is processing right now" is a real question.
-const LIVE_BASE = "http://localhost:8017";
+// ?liveBase=http://localhost:8018 points this at a second instance — useful when the usual
+// dashboard is running older code and you do not want to kill it to try a change.
+const LIVE_BASE = new URLSearchParams(window.location.search).get("liveBase")?.replace(/\/$/, "")
+  || "http://localhost:8017";
 const LIVE_POLL_MS = 5000;
 // On prod the dashboard does not exist, so every poll is a guaranteed connection refusal —
 // and the browser logs those regardless of the try/catch around the fetch. Backing off to
@@ -788,6 +862,10 @@ function init() {
   pollLive();
   pollJobs();
   setInterval(pollJobs, 5000);
+  // Slower than the job poll: the quota only moves while a fetch is running, and the
+  // server caches the scan for 30 s anyway, so polling it every 5 s would buy nothing.
+  pollBudget();
+  setInterval(pollBudget, 30000);
 }
 
 document.addEventListener("DOMContentLoaded", init);
