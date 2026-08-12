@@ -46,6 +46,13 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+# The shared LLM ledger (agents/lib/llm-cost), a sibling checkout rather than a dependency.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "agents" / "lib" / "llm-cost"))
+try:
+    import llm_cost
+except ImportError:  # a checkout without agents/ still runs, it just does not account
+    llm_cost = None
+
 from progress_status import report_progress
 
 # Provider config — Claude via local CLI (subscription-billed), Claude via
@@ -62,7 +69,7 @@ DEFAULT_MODEL_BY_PROVIDER = {
     # codex-cli: None = the codex config default (ChatGPT accounts only allow
     # that model set). Billed against the ChatGPT subscription.
     "codex-cli": None,
-    "anthropic": "claude-sonnet-4-6",
+    "anthropic": "claude-sonnet-5",
     # Default to gpt-4o for OpenAI: it's vision-capable without the hidden
     # reasoning tokens that gpt-5 spends invisibly (and that can swallow the
     # whole completion budget before any user-visible JSON is emitted). The
@@ -313,6 +320,19 @@ def call_claude(image_path: Path, model: str, max_tokens: int, meta: dict) -> di
         "input_tokens": response.usage.input_tokens,
         "output_tokens": response.usage.output_tokens,
     }
+    # A claude-cli run is billed to the Max subscription: no money at the margin, but the tokens
+    # are what say whether a prompt change doubled a run, and the ledger is where that is asked
+    # across every repo. The CLI's own figure rides along as the metered equivalent, never as spend.
+    if llm_cost is not None:
+        try:
+            llm_cost.record_subscription_run(
+                repo="zagreb-parkiralista", script="31_llm_propose",
+                model=resolved_model, usage=usage, equivalent_usd=cost,
+                engine="claude-cli",
+            )
+        except Exception as exc:  # accounting must never take down the work it accounts for
+            log(f"  [llm-cost] not recorded: {exc}")
+
     parsed["_provider"] = "anthropic"
     parsed["_model"] = model
     return parsed
@@ -390,6 +410,19 @@ def call_claude_cli(image_path: Path, model: str, meta: dict, max_turns: int = 2
     }
     # Tagged as anthropic so the viewer renders these with the existing teal
     # style; engine records the actual transport.
+    # A claude-cli run is billed to the Max subscription: no money at the margin, but the tokens
+    # are what say whether a prompt change doubled a run, and the ledger is where that is asked
+    # across every repo. The CLI's own figure rides along as the metered equivalent, never as spend.
+    if llm_cost is not None:
+        try:
+            llm_cost.record_subscription_run(
+                repo="zagreb-parkiralista", script="31_llm_propose",
+                model=resolved_model, usage=usage, equivalent_usd=cost,
+                engine="claude-cli",
+            )
+        except Exception as exc:  # accounting must never take down the work it accounts for
+            log(f"  [llm-cost] not recorded: {exc}")
+
     parsed["_provider"] = "anthropic"
     parsed["_model"] = resolved_model
     parsed["_engine"] = "claude-cli"
@@ -695,7 +728,7 @@ def main() -> int:
     parser.add_argument(
         "--model",
         default=None,
-        help="Override model name (default: per-provider sensible default — claude-sonnet-4-6 / gpt-5)",
+        help="Override model name (default: per-provider sensible default — claude-sonnet-5 / gpt-5)",
     )
     parser.add_argument(
         "--max-tokens",

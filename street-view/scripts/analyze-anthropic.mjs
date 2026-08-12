@@ -11,7 +11,7 @@ function parseArgs(argv) {
     images: resolveFrom(import.meta.url, "../out/street-view-images.json"),
     out: resolveFrom(import.meta.url, "../out/anthropic-analyses.json"),
     keyEnv: "ANTHROPIC_API_KEY",
-    model: "claude-sonnet-4-6",
+    model: "claude-sonnet-5",
     delayMs: 1000,
     segmentId: null
   };
@@ -25,7 +25,7 @@ function parseArgs(argv) {
     else if (argv[i] === "--delay-ms") args.delayMs = Number(argv[++i]);
     else if (argv[i] === "--segment-id") args.segmentId = String(argv[++i]);
     else if (argv[i] === "--help") {
-      console.log("Usage: node scripts/analyze-anthropic.mjs --candidates path --images path [--segment-id id] [--model claude-sonnet-4-6]");
+      console.log("Usage: node scripts/analyze-anthropic.mjs --candidates path --images path [--segment-id id] [--model claude-sonnet-5]");
       process.exit(0);
     } else {
       throw new Error(`Unknown argument: ${argv[i]}`);

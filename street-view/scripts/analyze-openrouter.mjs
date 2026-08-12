@@ -19,6 +19,15 @@ import { ASSESSMENT_SCHEMA, SYSTEM_PROMPT, buildUserPrompt } from "./lib/assessm
 import { fileExists, readJson, resolveFrom, writeJson } from "./lib/io.mjs";
 import { reportProgress } from "./lib/progress.mjs";
 
+// The shared ledger lives in a sibling checkout, so a repo without it still runs unaccounted
+// rather than failing to start.
+let recordSpend = null;
+try {
+  ({ record: recordSpend } = await import("../../../agents/lib/llm-cost/index.mjs"));
+} catch {
+  console.warn("[llm-cost] shared ledger unavailable; spend recorded locally only");
+}
+
 const API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const GENERATION_URL = "https://openrouter.ai/api/v1/generation";
 
@@ -275,6 +284,25 @@ export async function analyzeWithOpenRouter({ candidates, images, out, model, ke
         }
         if (typeof cost === "number") totalCost += cost;
         else costUnknown += 1;   // counted, never silently treated as free
+
+        // Into the shared ledger, with OpenRouter's own billed figure rather than a computed one:
+        // it charges what it charges, and a local token x price estimate routinely disagrees. A
+        // generation whose cost never came back is left out rather than recorded as free.
+        if (recordSpend && typeof cost === "number") {
+          try {
+            recordSpend({
+              repo: "zagreb-parkiralista", script: "analyze-openrouter", model: resolvedModel || model,
+              usage: {
+                input_tokens: usage?.prompt_tokens ?? 0,
+                output_tokens: usage?.completion_tokens ?? 0,
+              },
+              cost_usd: cost,
+              meta: { segmentId: segId, generationId, via: "openrouter" },
+            });
+          } catch (error) {
+            log(`  [llm-cost] not recorded: ${error.message}`);
+          }
+        }
 
         results.push({
           segment_id: segId,
