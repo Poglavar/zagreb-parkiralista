@@ -21,6 +21,15 @@ import { renderSegmentOrtho, segmentBbox3765, ORTHO_SOURCES, ORTHO_RENDER_SIZE }
 import { fileExists, readJson, resolveFrom, writeJson } from "./lib/io.mjs";
 import { reportProgress } from "./lib/progress.mjs";
 
+// The shared ledger lives in a sibling checkout, so a repo without it still runs
+// unaccounted rather than failing to start. Same pattern as analyze-openrouter.mjs.
+let recordSubscriptionRun = null;
+try {
+  ({ recordSubscriptionRun } = await import("../../../agents/lib/llm-cost/index.mjs"));
+} catch {
+  console.warn("[llm-cost] shared ledger unavailable; consumption recorded locally only");
+}
+
 function log(msg) {
   console.log(`[${new Date().toISOString().slice(11, 19)}] ${msg}`);
 }
@@ -268,7 +277,11 @@ export async function analyzeWithClaudeCli({
         ortho,
         orthoPath: ortho?.path
       });
-      const maxTurns = 10 + item.availableCaptures.length * 2;
+      // Opus 5 spends more turns deliberating (re-reading images) than earlier models;
+      // 10 + 2/capture produced error_max_turns on ~20% of segments. The budget is a
+      // stall guard, not a cost control — a segment that fails on it wastes every token
+      // it burned — so it is sized generously.
+      const maxTurns = 20 + item.availableCaptures.length * 4;
       const t0 = Date.now();
       try {
         const wrapper = await runClaudeCli(prompt, model, maxTurns, effort);
@@ -289,6 +302,20 @@ export async function analyzeWithClaudeCli({
           nominal_cost_usd: Number(nominal.toFixed(6)),
           assessment: wrapper.structured_output
         });
+        // Subscription consumption to the shared cross-repo ledger: tokens recorded, no
+        // money, the CLI's nominal figure kept as the metered equivalent. A ledger
+        // failure is loud but never takes the run down.
+        if (recordSubscriptionRun) {
+          try {
+            recordSubscriptionRun({
+              repo: "zagreb-parkiralista", script: "analyze-claude-cli",
+              model: resolvedModel, usage, equivalentUsd: nominal || null,
+              meta: { segment_id: segId, variant: variant.name, images: item.availableCaptures.length }
+            });
+          } catch (e) {
+            log(`  [llm-cost] not recorded: ${e.message}`);
+          }
+        }
         processed += 1;
         const eta = Math.round(((Date.now() - startedAt) / processed) * (queue.length - processed) / 1000);
         log(`Segment ${segId}: ok in ${Math.round((Date.now() - t0) / 1000)}s, nominal $${nominal.toFixed(3)} (${processed}/${queue.length}, eta ${eta}s)`);

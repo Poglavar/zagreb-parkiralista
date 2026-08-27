@@ -19,6 +19,15 @@ import { ASSESSMENT_SCHEMA, SYSTEM_PROMPT, buildUserPrompt } from "./lib/assessm
 import { fileExists, readJson, resolveFrom, writeJson } from "./lib/io.mjs";
 import { reportProgress } from "./lib/progress.mjs";
 
+// The shared ledger lives in a sibling checkout, so a repo without it still runs
+// unaccounted rather than failing to start. Same pattern as analyze-openrouter.mjs.
+let recordSubscriptionRun = null;
+try {
+  ({ recordSubscriptionRun } = await import("../../../agents/lib/llm-cost/index.mjs"));
+} catch {
+  console.warn("[llm-cost] shared ledger unavailable; consumption recorded locally only");
+}
+
 function log(msg) {
   console.log(`[${new Date().toISOString().slice(11, 19)}] ${msg}`);
 }
@@ -233,6 +242,21 @@ export async function analyzeWithCodexCli({ candidates, images, out, model, effo
           cost_usd: 0,
           assessment
         });
+        // Subscription consumption to the shared ledger. Codex reports only a combined
+        // total, so it goes in meta.total_tokens with zeroed usage — the convention
+        // recognize-facade.js already established; codex states no nominal figure.
+        if (recordSubscriptionRun) {
+          try {
+            recordSubscriptionRun({
+              repo: "zagreb-parkiralista", script: "analyze-codex-cli",
+              model: resolvedModel || model || "codex-config-default",
+              usage: {},
+              meta: { segment_id: segId, total_tokens: segTokens ?? null, effort, images: item.availableCaptures.length }
+            });
+          } catch (e) {
+            log(`  [llm-cost] not recorded: ${e.message}`);
+          }
+        }
         processed += 1;
         const eta = Math.round(((Date.now() - startedAt) / processed) * (queue.length - processed) / 1000);
         log(`Segment ${segId}: ok in ${Math.round((Date.now() - t0) / 1000)}s, ${segTokens ?? "?"} tokens (${processed}/${queue.length}, eta ${eta}s)`);
