@@ -71,6 +71,7 @@ function parseArgs(argv) {
   const args = {
     area: null,
     benchmark: false,      // select exactly the segments carrying a human verdict
+    osmBenchmark: false,   // select segments where OSM carries a per-side parking claim
     engine: "claude-cli",  // claude-cli (subscription-billed, default) | openai-batch
     chunkSize: 50,
     maxChunks: 1,
@@ -91,6 +92,7 @@ function parseArgs(argv) {
   for (let i = 2; i < argv.length; i += 1) {
     if (argv[i] === "--area") args.area = argv[++i];
     else if (argv[i] === "--benchmark") { args.benchmark = true; args.area = args.area || "benchmark"; }
+    else if (argv[i] === "--osm-benchmark") { args.osmBenchmark = true; args.area = args.area || "osm-benchmark"; }
     else if (argv[i] === "--run-id") args.runId = argv[++i];
     else if (argv[i] === "--notes") args.notes = argv[++i];
     else if (argv[i] === "--engine") args.engine = argv[++i];
@@ -136,6 +138,13 @@ Chains all pipeline steps for a city area:
 
 Options:
   --area NAME        Area name to process (mjesni odbor, gradska cetvrt, or l1/l2/l3 label)
+  --osm-benchmark    Process a fixed sample of segments whose OSM way carries a definite
+                     per-side parking:left/right/both claim AND whose imagery is already
+                     downloaded (0 billable Street View requests). Ground truth for
+                     scripts/score-run.mjs --against osm. Stratified: up to 60 segments
+                     with an OSM "parking yes" side (orientation-tagged ones first, so
+                     the manner/sizing comparison has data) + up to 60 with only "no"
+                     sides. Deterministic order, so every engine sees the same set.
   --benchmark        Process exactly the segments that carry a human verdict — the set
                      score-run.mjs can actually score. Use this to compare models.
   --variant NAME     What the model is shown (claude-cli only for now):
@@ -299,6 +308,68 @@ async function selectBenchmarkSegments(databaseUrl) {
   }
 }
 
+// The OSM benchmark set: segments whose OSM way carries a definite per-side parking
+// claim (parking:left/right/both = lane|street_side|on_kerb|half_on_kerb|shoulder|no;
+// 'separate' is excluded — it means the parking is mapped as its own polygon, so the
+// kerb itself proves nothing) and whose imagery is already on disk, so the whole run
+// costs zero billable Street View requests.
+//
+// Stratified and deterministic: up to 60 segments with at least one "yes" side —
+// orientation-tagged ones first, because orientation is what scores the manner/sizing
+// call — plus up to 60 with only "no" sides, both in md5(segment_id) order. Every
+// engine run over this selection therefore sees exactly the same segments, which is
+// the point of a benchmark.
+async function selectOsmBenchmarkSegments(databaseUrl) {
+  if (!databaseUrl) throw new Error("--osm-benchmark needs a database: DATABASE_URL or cadastre-data/api/.env");
+  const pg = (await import("pg")).default;
+  const pool = new pg.Pool({ connectionString: databaseUrl });
+  try {
+    const { rows } = await pool.query(`
+      WITH way AS (
+        SELECT DISTINCT ON (osm_id) osm_id, tags
+        FROM public.osm_road WHERE current ORDER BY osm_id, version DESC
+      ),
+      claim AS (
+        SELECT r.id AS sid,
+               bool_or(d.v IN ('lane','street_side','on_kerb','half_on_kerb','shoulder')) AS has_yes,
+               bool_or(d.v = 'no') AS has_no,
+               bool_or(d.o IS NOT NULL) AS has_orientation
+        FROM public.road_width_segment r
+        JOIN way w ON w.osm_id = r.osm_id
+        CROSS JOIN LATERAL (VALUES
+          (coalesce(w.tags->>'parking:left',  w.tags->>'parking:both'),
+           coalesce(w.tags->>'parking:left:orientation',  w.tags->>'parking:both:orientation')),
+          (coalesce(w.tags->>'parking:right', w.tags->>'parking:both'),
+           coalesce(w.tags->>'parking:right:orientation', w.tags->>'parking:both:orientation'))
+        ) AS d(v, o)
+        WHERE d.v IS NOT NULL AND d.v <> 'separate'
+        GROUP BY r.id
+      ),
+      imaged AS (
+        SELECT c.* FROM claim c
+        JOIN parking.segment_imagery si ON si.segment_id = c.sid::text AND si.image_count > 0
+      )
+      (SELECT sid, 'osm yes side' AS stratum FROM imaged WHERE has_yes
+         ORDER BY has_orientation DESC, md5(sid::text) LIMIT 60)
+      UNION ALL
+      (SELECT sid, 'osm no side only' FROM imaged WHERE NOT has_yes AND has_no
+         ORDER BY md5(sid::text) LIMIT 60)
+    `);
+    if (rows.length === 0) {
+      throw new Error("No OSM-claimed segments with downloaded imagery found — fetch imagery for an area with parking:* tags first.");
+    }
+    const yes = rows.filter((r) => r.stratum === "osm yes side").length;
+    log(`  OSM benchmark set: ${rows.length} segments (${yes} with an OSM parking side, ${rows.length - yes} with only "no" sides), imagery already on disk`);
+    return rows.map((r) => ({
+      segmentId: String(r.sid),
+      label: `OSM-BENCHMARK ${r.sid}`,
+      notes: `OSM per-side parking claim (${r.stratum}) — model-vs-OSM benchmark`
+    }));
+  } finally {
+    await pool.end();
+  }
+}
+
 // Resolve an area name against parking.road_segment_mo — the materialised spatial join
 // onto ppv.boundary_jms. Preferred over the l1/l2/l3 label match because those arrays
 // mix the gradska cetvrt and the mjesni odbor with no marker for which is which, and
@@ -411,6 +482,8 @@ async function main() {
       // names), then the older l1/l2/l3 label match so existing area names keep working.
       const selectionItems = args.benchmark
         ? await selectBenchmarkSegments(await loadDatabaseUrlAsync())
+        : args.osmBenchmark
+        ? await selectOsmBenchmarkSegments(await loadDatabaseUrlAsync())
         : (await selectSegmentsFromMo(await loadDatabaseUrlAsync(), areaName)
            || selectSegmentsForArea(sourceData, areaName));
       if (selectionItems.length === 0) {

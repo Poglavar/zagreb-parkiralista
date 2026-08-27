@@ -24,10 +24,11 @@ import { resolveFrom } from "./lib/io.mjs";
 const CADASTRE_ENV = resolveFrom(import.meta.url, "../../../cadastre-data/api/.env");
 
 function parseArgs(argv) {
-  const args = { runs: [], area: null, includeSuspect: false, json: false, databaseUrl: null, help: false };
+  const args = { runs: [], area: null, against: "human", includeSuspect: false, json: false, databaseUrl: null, help: false };
   for (let i = 2; i < argv.length; i += 1) {
     if (argv[i] === "--run") args.runs.push(argv[++i]);
     else if (argv[i] === "--area") args.area = argv[++i];
+    else if (argv[i] === "--against") args.against = argv[++i];
     else if (argv[i] === "--include-suspect") args.includeSuspect = true;
     else if (argv[i] === "--json") args.json = true;
     else if (argv[i] === "--database-url") args.databaseUrl = argv[++i];
@@ -48,6 +49,16 @@ run that skipped a street is not credited with a correct "no parking" there.
 
 Options:
   --run ID            Score this run (repeatable). Default: all runs with overlap.
+  --against WHAT      Ground truth: 'human' (default) = parking.verdict;
+                      'osm' = per-side parking:left/right/both claims on the OSM way.
+                      OSM records LEGAL parking only, so in osm mode a side counts as
+                      model-positive only when the model found OFFICIAL parking there
+                      (formality formal/mixed) — informal-only findings score as "no
+                      official parking" and are tallied separately, because a model
+                      seeing cars where OSM says no_stopping may simply be seeing
+                      reality. Never score a run whose prompt variant was shown the
+                      OSM tags (sv-osm*) against osm — that is leakage, and such runs
+                      are excluded automatically.
   --area NAME         Restrict to one mjesni odbor or gradska cetvrt
   --include-suspect   Include verdicts marked 'suspect' (excluded by default —
                       they are the cases the human was unsure about)
@@ -106,6 +117,79 @@ JOIN parking.run r ON r.run_id = c.run_id
 LEFT JOIN parking.observation o
   ON o.run_id = c.run_id AND o.segment_id = s.segment_id AND o.side = s.side
 WHERE ($1::text[] IS NULL OR r.run_id = ANY($1))
+`;
+
+// Same row shape, different ground truth: the per-side parking:left/right/both claims on
+// the segment's OSM way. Where these tags exist they are near-complete for OFFICIAL
+// parking (informal parking is by definition unmapped), so the model's claim is reduced
+// to "official parking present": an observation counts only with formality formal/mixed.
+// informal_only marks sides where the model found ONLY informal parking — reported as a
+// tally, not as an error, because on a no_stopping arterial that is often the truth.
+//
+// OSM tags side left/right relative to the WAY direction; observations are sided
+// relative to the SEGMENT direction. same_dir compares the two via line-referencing and
+// flips the OSM side where they disagree — the convention the human-vs-OSM sanity check
+// validated (39/43; the 4 misses were curved ways measured a different way).
+//
+// Runs whose prompt variant included the OSM tags (prompt_version LIKE '%-osm%') are
+// excluded: scoring a model against text it was shown is leakage, not skill.
+const OSM_SQL = `
+WITH way AS (
+    SELECT DISTINCT ON (osm_id) osm_id, tags, geom
+    FROM public.osm_road WHERE current ORDER BY osm_id, version DESC
+),
+seg AS (
+    SELECT r.id::text AS base_id, w.osm_id, w.tags,
+           ST_LineLocatePoint(w.geom, ST_StartPoint(r.geom)) <
+           ST_LineLocatePoint(w.geom, ST_EndPoint(r.geom)) AS same_dir
+    FROM public.road_width_segment r JOIN way w ON w.osm_id = r.osm_id
+),
+truth AS (
+    SELECT s.base_id,
+           CASE WHEN s.same_dir THEN d.osm_side
+                ELSE CASE d.osm_side WHEN 'left' THEN 'right' ELSE 'left' END END AS side,
+           d.v IN ('lane','street_side','on_kerb','half_on_kerb','shoulder') AS has_parking,
+           d.o AS human_manner
+    FROM seg s
+    CROSS JOIN LATERAL (VALUES
+      ('left',  coalesce(s.tags->>'parking:left',  s.tags->>'parking:both'),
+                coalesce(s.tags->>'parking:left:orientation',  s.tags->>'parking:both:orientation')),
+      ('right', coalesce(s.tags->>'parking:right', s.tags->>'parking:both'),
+                coalesce(s.tags->>'parking:right:orientation', s.tags->>'parking:both:orientation'))
+    ) AS d(osm_side, v, o)
+    WHERE d.v IN ('lane','street_side','on_kerb','half_on_kerb','shoulder','no')
+),
+scoped AS (
+    SELECT t.* FROM truth t
+    LEFT JOIN parking.road_segment_mo m ON m.road_segment_id::text = t.base_id
+    WHERE $2::text IS NULL
+       OR lower(m.mo_naziv) = lower($2) OR lower(m.gc_naziv) = lower($2)
+)
+SELECT r.run_id, r.model, r.engine, r.prompt_version,
+       s.base_id AS segment_id, s.side, s.has_parking, s.human_manner,
+       official.parking_manner AS model_manner,
+       official.confidence,
+       (official.seg IS NOT NULL) AS model_says_parking,
+       (official.seg IS NULL AND unofficial.seg IS NOT NULL) AS informal_only
+FROM scoped s
+JOIN parking.segment_coverage c ON c.segment_id = s.base_id AND c.outcome <> 'failed'
+JOIN parking.run r ON r.run_id = c.run_id
+LEFT JOIN LATERAL (
+    SELECT o.segment_id AS seg, o.parking_manner, o.confidence
+    FROM parking.observation o
+    WHERE o.run_id = c.run_id AND regexp_replace(o.segment_id, '-s[0-9]+$', '') = s.base_id
+      AND o.side = s.side AND o.formality IN ('formal','mixed')
+    ORDER BY o.confidence DESC NULLS LAST LIMIT 1
+) official ON true
+LEFT JOIN LATERAL (
+    SELECT o.segment_id AS seg
+    FROM parking.observation o
+    WHERE o.run_id = c.run_id AND regexp_replace(o.segment_id, '-s[0-9]+$', '') = s.base_id
+      AND o.side = s.side AND (o.formality IS NULL OR o.formality NOT IN ('formal','mixed'))
+    LIMIT 1
+) unofficial ON true
+WHERE ($1::text[] IS NULL OR r.run_id = ANY($1))
+  AND coalesce(r.prompt_version, '') NOT LIKE '%-osm%'
 `;
 
 // A model only ever reports on a side of the carriageway, so a hand-drawn ("manual")
@@ -175,14 +259,18 @@ function fmtPct(x) {
   return x == null ? "  — " : `${(100 * x).toFixed(0)}%`.padStart(4);
 }
 
-export async function scoreRuns({ databaseUrl, runs, area, includeSuspect, json }) {
+export async function scoreRuns({ databaseUrl, runs, area, against = "human", includeSuspect, json }) {
+  if (!["human", "osm"].includes(against)) throw new Error(`--against must be 'human' or 'osm', not '${against}'`);
   const pool = new pg.Pool({ connectionString: databaseUrl });
   try {
-    const { rows } = await pool.query(SQL, [runs.length ? runs : null, area, includeSuspect]);
+    const osmMode = against === "osm";
+    const { rows } = osmMode
+      ? await pool.query(OSM_SQL, [runs.length ? runs : null, area])
+      : await pool.query(SQL, [runs.length ? runs : null, area, includeSuspect]);
     if (rows.length === 0) {
-      console.log("No scoreable overlap: no run has coverage over any human verdict" +
+      console.log(`No scoreable overlap: no run has coverage over any ${osmMode ? "OSM-claimed side" : "human verdict"}` +
         (area ? ` in "${area}"` : "") + ".");
-      console.log("Human verdicts live where you reviewed; run scripts/score-run.mjs --help for where to look.");
+      if (!osmMode) console.log("Human verdicts live where you reviewed; run scripts/score-run.mjs --help for where to look.");
       return [];
     }
 
@@ -196,8 +284,10 @@ export async function scoreRuns({ databaseUrl, runs, area, includeSuspect, json 
 
     const truthN = new Set(rows.map((r) => `${r.segment_id}|${r.side}`)).size;
     console.log("");
-    console.log(`Model league table${area ? ` — ${area}` : ""}`);
-    console.log(`Scored against ${truthN} human verdicts${includeSuspect ? " (including 'suspect')" : ""}. Only spaces a run actually covered count towards it.`);
+    console.log(`Model league table${area ? ` — ${area}` : ""}${osmMode ? " — vs OSM parking:* tags (OFFICIAL parking only)" : ""}`);
+    console.log(osmMode
+      ? `Scored against ${truthN} OSM per-side claims. Model counts as positive only where it found OFFICIAL (formal/mixed) parking; runs shown the OSM tags (sv-osm*) are excluded as leakage.`
+      : `Scored against ${truthN} human verdicts${includeSuspect ? " (including 'suspect')" : ""}. Only spaces a run actually covered count towards it.`);
     console.log("");
     console.log("  model / run                              n    TP  FP  FN  TN    MCC   prec  rec   F1   says  manner  depth bias");
     console.log("  ─────────────────────────────────────  ───  ───  ──  ──  ──   ─────  ────  ────  ────  ────  ──────  ──────────");
@@ -228,6 +318,22 @@ export async function scoreRuns({ databaseUrl, runs, area, includeSuspect, json 
     console.log("               Negative = the model records a shallower strip than reality, i.e.");
     console.log("               under-counts parking area even when it correctly spots the parking.");
     console.log("");
+
+    if (osmMode) {
+      // Sides where the model found ONLY informal parking: scored as "no official
+      // parking" above, tallied here so the legality-vs-reality gap stays visible.
+      const informalByRun = new Map();
+      for (const r of rows) {
+        if (r.informal_only) informalByRun.set(r.run_id, (informalByRun.get(r.run_id) || 0) + 1);
+      }
+      if (informalByRun.size) {
+        console.log("  informal-only sides (model saw only informal parking; scored as no official):");
+        for (const [runId, n] of [...informalByRun.entries()].sort((a, b) => b[1] - a[1])) {
+          console.log(`        ${runId}: ${n}`);
+        }
+        console.log("");
+      }
+    }
 
     const thin = scores.filter((s) => s.n < 10);
     if (thin.length) {
