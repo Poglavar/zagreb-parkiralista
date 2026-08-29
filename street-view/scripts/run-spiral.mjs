@@ -156,8 +156,14 @@ async function main() {
     if (await fileExists(STOP_FILE)) { log(`STOP-SPIRAL found — stopping before ${a.area}. Delete it to resume.`); break; }
 
     log(`=== ring ${a.ring} · ${a.area} — ${a.segments - a.analysed}/${a.segments} unanalysed (${areasDone + 1}${Number.isFinite(args.maxAreas) ? `/${args.maxAreas}` : ""}, ${newImages}/${args.maxNewImages} images spent) ===`);
+    // Delta, not absolute: an area processed in an earlier spiral leaves its manifest
+    // behind with that run's newly_fetched count, and a revisit that skips the fetch
+    // step must not re-charge those images against THIS run's budget. (Double-counting
+    // here once burned 484 phantom images in two minutes of sliver-area revisits.)
+    const fetchedBefore = await newlyFetchedFor(slugify(a.area));
     const code = await runProcessArea(a.area, args);
-    const fetched = await newlyFetchedFor(slugify(a.area));
+    const fetchedAfter = await newlyFetchedFor(slugify(a.area));
+    const fetched = fetchedAfter === fetchedBefore ? 0 : fetchedAfter;
     newImages += fetched;
 
     if (code !== 0) {
