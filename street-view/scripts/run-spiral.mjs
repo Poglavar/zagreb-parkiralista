@@ -44,6 +44,7 @@ function parseArgs(argv) {
     model: "gpt-5.6-sol",
     effort: null,
     maxAreas: Infinity,
+    maxMinutes: Infinity,
     maxNewImages: 2000,
     write: false,
     help: argv.length <= 2
@@ -53,6 +54,7 @@ function parseArgs(argv) {
     else if (argv[i] === "--model") args.model = argv[++i];
     else if (argv[i] === "--effort") args.effort = argv[++i];
     else if (argv[i] === "--max-areas") args.maxAreas = Number(argv[++i]);
+    else if (argv[i] === "--max-minutes") args.maxMinutes = Number(argv[++i]);
     else if (argv[i] === "--max-new-images") args.maxNewImages = Number(argv[++i]);
     else if (argv[i] === "--write") args.write = true;
     else if (argv[i] === "--help") args.help = true;
@@ -73,6 +75,9 @@ prints the plan and exits. Needs DATABASE_URL in the environment (source .env fi
                        images exceed N (default 2000). Areas whose imagery is already
                        on disk cost 0 against this.
   --max-areas N        Stop after N areas (default: work the whole queue).
+  --max-minutes N      Stop after the first area that finishes past N minutes of
+                       runtime (a time budget, checked between areas — the last
+                       area may overshoot by its own duration).
 
 Stop gracefully: touch out/STOP-SPIRAL — finishes the current area, then exits.
 Progress: run-job log, plus each area's own step logs under out/<slug>/.`);
@@ -147,6 +152,7 @@ async function main() {
 
   for (const a of queue) {
     if (areasDone >= args.maxAreas) { log(`Area cap reached (${args.maxAreas}) — stopping.`); break; }
+    if ((Date.now() - startedAt) / 60000 >= args.maxMinutes) { log(`Time budget reached (${Math.round((Date.now() - startedAt) / 60000)}/${args.maxMinutes} min) — stopping.`); break; }
     if (await fileExists(STOP_FILE)) { log(`STOP-SPIRAL found — stopping before ${a.area}. Delete it to resume.`); break; }
 
     log(`=== ring ${a.ring} · ${a.area} — ${a.segments - a.analysed}/${a.segments} unanalysed (${areasDone + 1}${Number.isFinite(args.maxAreas) ? `/${args.maxAreas}` : ""}, ${newImages}/${args.maxNewImages} images spent) ===`);
