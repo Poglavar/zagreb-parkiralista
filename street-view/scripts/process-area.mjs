@@ -387,9 +387,16 @@ async function selectSegmentsFromMo(databaseUrl, areaName) {
       ORDER BY road_segment_id
     `, [areaName]);
     if (rows.length === 0) return null;
-    const level = rows[0].mo_naziv.toLowerCase() === areaName.toLowerCase() ? "mjesni odbor" : "gradska četvrt";
-    log(`  Resolved "${areaName}" as ${level} via parking.road_segment_mo (ring ${rows[0].ring_index})`);
-    return rows.map((r) => ({
+    // Five names (Brezovica, Donja/Gornja Dubrava, Maksimir, Trnje) are BOTH a mjesni
+    // odbor and a gradska četvrt. The OR above then returns the whole četvrt, which is
+    // how a "65-segment" area once processed 739 segments and 1,704 billable images in
+    // one gulp. Ambiguity resolves to the SMALLER unit: exact MO rows win when present.
+    // (To process such a četvrt in full, run its MOs individually — the spiral does.)
+    const moRows = rows.filter((r) => r.mo_naziv.toLowerCase() === areaName.toLowerCase());
+    const useRows = moRows.length > 0 ? moRows : rows;
+    const level = moRows.length > 0 ? "mjesni odbor" : "gradska četvrt";
+    log(`  Resolved "${areaName}" as ${level} via parking.road_segment_mo (ring ${useRows[0].ring_index}, ${useRows.length} segments)`);
+    return useRows.map((r) => ({
       segmentId: String(r.road_segment_id),
       label: `${areaName} ${r.road_segment_id}`,
       notes: `Auto-selected for ${level} ${areaName} (${r.gc_naziv})`
