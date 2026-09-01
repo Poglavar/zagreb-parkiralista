@@ -45,6 +45,7 @@ function parseArgs(argv) {
     effort: null,
     maxAreas: Infinity,
     maxMinutes: Infinity,
+    targetPct: null,
     maxNewImages: 2000,
     write: false,
     help: argv.length <= 2
@@ -55,6 +56,7 @@ function parseArgs(argv) {
     else if (argv[i] === "--effort") args.effort = argv[++i];
     else if (argv[i] === "--max-areas") args.maxAreas = Number(argv[++i]);
     else if (argv[i] === "--max-minutes") args.maxMinutes = Number(argv[++i]);
+    else if (argv[i] === "--target-pct") args.targetPct = Number(argv[++i]);
     else if (argv[i] === "--max-new-images") args.maxNewImages = Number(argv[++i]);
     else if (argv[i] === "--write") args.write = true;
     else if (argv[i] === "--help") args.help = true;
@@ -78,6 +80,9 @@ prints the plan and exits. Needs DATABASE_URL in the environment (source .env fi
   --max-minutes N      Stop after the first area that finishes past N minutes of
                        runtime (a time budget, checked between areas — the last
                        area may overshoot by its own duration).
+  --target-pct N       Stop once N percent of the city's road segments carry
+                       coverage (checked in the database after each area) —
+                       "get the city over 50%" as a literal stop condition.
 
 Stop gracefully: touch out/STOP-SPIRAL — finishes the current area, then exits.
 Progress: run-job log, plus each area's own step logs under out/<slug>/.`);
@@ -112,6 +117,23 @@ function runProcessArea(area, { engine, model, effort, write }) {
     proc.on("close", (code) => resolve(code ?? 1));
     proc.on("error", () => resolve(1));
   });
+}
+
+// Citywide progress, from the same definition every tally uses: distinct segments with
+// non-failed coverage over all road_width_segment rows.
+async function citywidePct(databaseUrl) {
+  const pg = (await import("pg")).default;
+  const pool = new pg.Pool({ connectionString: databaseUrl, max: 1 });
+  try {
+    const { rows } = await pool.query(`
+      SELECT round(100.0 * (SELECT count(DISTINCT segment_id) FROM parking.segment_coverage
+                            WHERE outcome IN ('parking','no_parking'))
+                   / (SELECT count(*) FROM public.road_width_segment), 2)::float AS pct
+    `);
+    return rows[0].pct;
+  } finally {
+    await pool.end();
+  }
 }
 
 async function newlyFetchedFor(slug) {
@@ -177,6 +199,12 @@ async function main() {
       areasDone += 1;
       const mins = Math.round((Date.now() - startedAt) / 60000);
       log(`=== done ${a.area}: +${fetched} billable images (cum ${newImages}) · ${areasDone} areas in ${mins} min ===`);
+    }
+
+    if (args.targetPct != null && code === 0) {
+      const pct = await citywidePct(process.env.DATABASE_URL);
+      log(`City coverage now ${pct}% (target ${args.targetPct}%).`);
+      if (pct >= args.targetPct) { log(`Target reached (${pct}% >= ${args.targetPct}%) — stopping.`); break; }
     }
 
     if (newImages >= args.maxNewImages) {
